@@ -1,9 +1,11 @@
 /target
 /classes
 /checkouts
+/resources
 profiles.clj
 pom.xml
 pom.xml.asc
+*.asc
 *.jar
 *.class
 /.lein-*

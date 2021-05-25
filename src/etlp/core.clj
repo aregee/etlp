@@ -1,6 +1,7 @@
 (ns etlp.core
   (:require [clojure.string :as s]
             [clojure.core.async :as a]
+            [cheshire.core :as json]
             [clj-postgresql.core :as pg]
             [clojure.java.jdbc :as jdbc]
             [clojure.java.io :as io])
@@ -69,6 +70,13 @@
       (operation (record-generator filepath))
       (read-lines filepath))))
 
+(defn parse-line [file]
+  (fn [line]
+    (json/decode line true)))
+
+(def json-reducer
+  (file-reducer {:record-generator parse-line :operation map}))
+
 (defn process-parallel [transducer params files]
   (a/<!!
    (a/pipeline
@@ -76,7 +84,6 @@
     (doto (a/chan) (a/close!))                  ;; Output channel - /dev/null
     (apply transducer params)
     (a/to-chan files))))
-
 
 (defn process-with-transducers [transducer params files]
   (transduce

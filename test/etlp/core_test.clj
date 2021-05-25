@@ -42,17 +42,11 @@
         (when (re-find #"a" string)
           (update log-entry :field str "-improved!")))))
 
-(defn parse-line [file]
-  (fn [line]
-    (json/decode line true)))
-
-(def parse-json-file-reducible
-  (etlp/file-reducer {:record-generator parse-line :operation map}))
 
 (def write-json-logs (etlp/pg-destination (table-opts :table)))
 
 (defn- pipeline [conn date]
-  (comp (mapcat parse-json-file-reducible)    ;; Pipeline transducer
+  (comp (mapcat etlp/json-reducer)    ;; Pipeline transducer
         (filter valid-entry?)
         (keep transform-entry-if-relevant)
         (partition-all 1000)
