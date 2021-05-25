@@ -7,4 +7,5 @@
                  [clj-postgresql "0.7.0"]
                  [org.clojure/core.async "0.4.500"]
                  [org.clojure/java.jdbc "0.7.11"]]
+  :profiles {:dev {:dependencies [[ cheshire "5.10.0"]]}}
   :repl-options {:init-ns etlp.core})

@@ -7,17 +7,6 @@
   (:import [java.io BufferedReader])
   (:gen-class))
 
-(defn lines-reducible [^BufferedReader rdr]
-  (reify clojure.lang.IReduceInit
-    (reduce [this f init]
-      (try
-        (loop [state init]
-          (if (reduced? state)
-            state
-            (if-let [line (.readLine rdr)]
-              (recur (f state line))
-              state)))
-        (finally (.close rdr))))))
 
 (defn files [dirpath]
   (into [] (.list (io/file dirpath))))
@@ -51,6 +40,35 @@
 (defn write-batch [conn table batch]
   (jdbc/insert-multi! conn table batch))
 
+(defn pg-destination [table]
+  (fn[db]
+    (partial write-batch db table)))
+
+(defn files-processor [dir]
+  (map (partial with-path dir) (files dir)))
+
+(defn lines-reducible [^BufferedReader rdr]
+  (reify clojure.lang.IReduceInit
+    (reduce [this f init]
+      (try
+        (loop [state init]
+          (if (reduced? state)
+            state
+            (if-let [line (.readLine rdr)]
+              (recur (f state line))
+              state)))
+        (finally (.close rdr))))))
+
+(defn read-lines [file]
+  (lines-reducible (io/reader file)))
+
+(defn file-reducer [{:keys [record-generator operation]}]
+  (fn [filepath]
+    (prn filepath)
+    (eduction
+      (operation (record-generator filepath))
+      (read-lines filepath))))
+
 (defn process-parallel [transducer params files]
   (a/<!!
    (a/pipeline
@@ -58,3 +76,18 @@
     (doto (a/chan) (a/close!))                  ;; Output channel - /dev/null
     (apply transducer params)
     (a/to-chan files))))
+
+
+(defn process-with-transducers [transducer params files]
+  (transduce
+   (apply transducer params)
+   (constantly nil)
+   nil
+   files))
+
+(defn create-pipeline-processor [{:keys [table-opts]}]
+  (let [conn (create-connection (table-opts :db))]
+  (fn [{:keys [pipeline params path]}]
+    (apply-schema-migration conn table-opts)
+    (process-parallel pipeline (cons conn [params]) (files-processor path))
+    (close-connection conn))))
