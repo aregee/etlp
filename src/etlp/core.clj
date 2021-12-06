@@ -51,7 +51,7 @@
 
 
 (defn create-pg-destination [db {:keys [table specs ]}]
-  (delay (apply-schenma-migration db {:table table :specs specs}))
+  (delay (apply-schema-migration db {:table table :specs specs}))
   ((pg-destination db) table ))
 
 
