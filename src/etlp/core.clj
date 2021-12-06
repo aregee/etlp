@@ -107,5 +107,5 @@
 (defn create-pipeline-processor [{:keys [pg-connection pipeline]}]
     (fn [{:keys [params path]}]
       (process-parallel pipeline [params] (files-processor path))
-      (when (not= pg-connection :nil)
+      (when (not= pg-connection nil)
         (close-connection pg-connection)))
