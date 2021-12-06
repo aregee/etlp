@@ -5,15 +5,19 @@
             [etlp.core :as etlp]))
 
 
-(letfn [(rand-obj []
-  (case (rand-int 3)
-    0 {:type "string" :field (apply str (repeatedly 30 #(char (+ 33 (rand-int 90))))) }
-    1 {:type "string" :field (apply str (repeatedly 30 #(char (+ 33 (rand-int 90)))))}
-    2 {:type "empty"}))]
-  (with-open [f (io/writer "resources/fixtures/dummy.json")]
-    (binding [*out* f]
-    (dotimes [_ 100000]
-    (println (json/encode (rand-obj)))))))
+
+
+(defn gen-files []
+    (letfn [(rand-obj []
+      (case (rand-int 3)
+        0 {:type "string" :field (apply str (repeatedly 30 #(char (+ 33 (rand-int 90))))) }
+        1 {:type "string" :field (apply str (repeatedly 30 #(char (+ 33 (rand-int 90)))))}
+        2 {:type "empty"}))]
+      (with-open [f (io/writer "resources/fixtures/dummy.json")]
+        (binding [*out* f]
+        (dotimes [_ 100000]
+      (println (json/encode (rand-obj))))))))
+
 
 (def table-opts {
                  :db {:host "localhost"
@@ -52,10 +56,10 @@
         (partition-all 1000)
         (map (write-json-logs conn))))
 
-(def json-processor (etlp/create-pipeline-processor {:table-opts table-opts}))
+(def json-processor (etlp/create-pipeline-processor {:table-opts table-opts :pipeline pipeline}))
 
 (defn exec-fp [{:keys [path days]}]
-  (json-processor {:pipeline pipeline :params 1 :path path}))
+  (json-processor {:params 1 :path path}))
 
 
 (deftest method-test-files

@@ -41,9 +41,19 @@
 (defn write-batch [conn table batch]
   (jdbc/insert-multi! conn table batch))
 
-(defn pg-destination [table]
-  (fn[db]
+(defn pg-destination [db]
+  (fn [table]
     (partial write-batch db table)))
+
+
+(defn create-pg-connection [config]
+  (delay (create-connection config)))
+
+
+(defn create-pg-destination [db {:keys [table specs ]}]
+  (delay (apply-schenma-migration db {:table table :specs specs}))
+  ((pg-destination db) table ))
+
 
 (defn files-processor [dir]
   (map (partial with-path dir) (files dir)))
@@ -67,8 +77,8 @@
   (fn [filepath]
     (prn filepath)
     (eduction
-      (operation (record-generator filepath))
-      (read-lines filepath))))
+     (operation (record-generator filepath))
+     (read-lines filepath))))
 
 (defn parse-line [file]
   (fn [line]
@@ -77,6 +87,8 @@
 (def json-reducer
   (file-reducer {:record-generator parse-line :operation map}))
 
+
+; parallel processing transducer
 (defn process-parallel [transducer params files]
   (a/<!!
    (a/pipeline
@@ -92,9 +104,8 @@
    nil
    files))
 
-(defn create-pipeline-processor [{:keys [table-opts]}]
-  (let [conn (create-connection (table-opts :db))]
-  (fn [{:keys [pipeline params path]}]
-    (apply-schema-migration conn table-opts)
-    (process-parallel pipeline (cons conn [params]) (files-processor path))
-    (close-connection conn))))
+(defn create-pipeline-processor [{:keys [pg-connection pipeline]}]
+    (fn [{:keys [params path]}]
+      (process-parallel pipeline [params] (files-processor path))
+      (when (not= pg-connection :nil)
+        (close-connection pg-connection)))
