@@ -4,7 +4,7 @@ A Clojure library designed to do etl processing with transducers.
 
 ## Usage
 
-### TODO
+See Test
 
 ## License
 
