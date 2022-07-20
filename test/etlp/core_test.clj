@@ -69,6 +69,6 @@
 (defn exec-fp [{:keys [path days]}]
   (json-processor {:params 1 :path path}))
 
-(deftest e-to-e-test
-  (testing "etlp/create-pipeline-processor should execute without error"
-    (is (= nil (exec-fp {:path "resources/fixtures/" :days 1})))))
+;; (deftest e-to-e-test
+;;   (testing "etlp/create-pipeline-processor should execute without error"
+;;     (is (= nil (exec-fp {:path "resources/fixtures/" :days 1})))))

@@ -77,16 +77,16 @@
         (partition-all 100)
         (map save-into-database)))
 
-(def procedure-processor (etlp/create-pipeline-processor {:pg-connection nil :pipeline pipeline}))
+;; (def procedure-processor (etlp/create-pipeline-processor {:pg-connection nil :pipeline pipeline}))
 
-(defn exec-inno-procedure [{:keys [path days]}]
-  (procedure-processor {:params days :path path}))
+;; (defn exec-inno-procedure [{:keys [path days]}]
+;;   (procedure-processor {:params days :path path}))
 
 
-(deftest e-to-e-test
-  (testing "etlp/create-pipeline-processor should execute without error"
-    (is (= nil (exec-inno-procedure {:path "resources/procedure/" :days 1})))
-    (is (= 6000 (count @dummy)))))
+;; (deftest e-to-e-test
+;;   (testing "etlp/create-pipeline-processor should execute without error"
+;;     (is (= nil (exec-inno-procedure {:path "resources/procedure/" :days 1})))
+;;     ;; (is (= 6000 (count @dummy)))))
 
 ;; (deftest e-to-e-count
 ;;   (testing "etlp/create-pipeline-processor should produce 6000 records"
