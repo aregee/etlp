@@ -21,7 +21,6 @@
 (defn apply-schema-migration
   "Apply the schema to the database"
   [conn {:keys [table specs]}]
-  (prn "Invoked>>>>> here")
   (when (not (db-schema-migrated? conn {:table table}))
     (jdbc/db-do-commands conn
                          (jdbc/create-table-ddl
@@ -37,7 +36,6 @@
 
 (defn create-pg-connection [config]
   (create-connection config))
-
 
 (defn create-pg-destination [db {:keys [table specs]}]
   (delay
