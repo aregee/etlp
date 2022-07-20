@@ -6,19 +6,24 @@
             [clojure.string :as s]
             [etlp.reducers :refer [read-lines]]))
 
+
 (defn- valid-logs-only? [line]
   line)
+
 
 (defn parse-line [_]
   valid-logs-only?)
 
+
 (defn record-start? [log-line]
   (.startsWith log-line "MSH"))
+
 
 (defn next-log-record [hl7-lines]
   (let [head (first hl7-lines)
         body (take-while (complement record-start?) (rest hl7-lines))]
     (remove nil? (conj body head))))
+
 
 (defn- lazy-hl7-xform
   "Returns a lazy sequence of lists like partition, but may include
@@ -56,6 +61,7 @@
 
 (def dummy (atom []))
 
+
 (defn save-into-database [batch]
   ;; (swap! dummy + (count batch))
   (swap! dummy concat [batch]))
@@ -71,9 +77,11 @@
 
 (def parse-procedure-file (file-reducer {:record-generator parse-line :operation map}))
 
+
 (defn build-msg [vect]
   ;; (prn (count vect))
   (s/join "\r" vect))
+
 
 (defn logger [line]
   (clojure.pprint/pprint "ETLP-Logger[DEBUG] :==")
@@ -82,37 +90,19 @@
 
 (defn- pipeline [_]
   (comp (mapcat parse-procedure-file)
-
         (map build-msg)
-        ;; (mapcat parser/parse)
         (map parser/parse)
-        ;; (map logger)
-        ;; Pipeline transducer
-        ;; (map record-generator-procedure)
-        ;; (mapcat parser/parse)
         (partition-all 5)
-        ;; (mapcat logger)
-        ;; (mapcat parser/parse)
         (map save-into-database)))
 
 (def procedure-processor (etlp/create-pipeline-processor {:pg-connection nil :pipeline pipeline}))
+
 
 (defn exec-inno-procedure [{:keys [path days]}]
   (procedure-processor {:params days :path path}))
 
 
-;; (defn- read-file [file]
-;;   (swap! dummy concat [file])
-;;   (with-open [rdr (io/reader file)]
-;;     (reduce conj [] (line-seq rdr))))
-
-;; (def msg (read-file "resources/hl7/sample.hl7"))
-
 (deftest e-to-e-test
   (testing "etlp/create-pipeline-processor should execute without error"
     (is (= nil (exec-inno-procedure {:path "resources/hl7/" :days 1})))
     (is (= 26 (count @dummy)))))
-
-;; (deftest e-to-e-count
-;;   (testing "etlp/create-pipeline-processor should produce 6000 records"
-;;     (is (> (count @dummy) 1))))
