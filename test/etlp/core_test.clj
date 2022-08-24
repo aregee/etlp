@@ -49,7 +49,7 @@
 (defn- pipeline [params]
   (comp
    (map (partial merge (dissoc params :path)))
-   (map logger)
+  ;;  (map logger)
    (filter valid-entry?)
    (keep transform-entry-if-relevant)
    (partition-all 100)))

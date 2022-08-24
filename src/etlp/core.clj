@@ -102,7 +102,6 @@
                                                (map (reducers/parse-line filepath opts)))}})
 (defn exec-processor
   "run etlp processor" [ctx {:keys [processor params]}]
-  (debug (pprint ctx))
   (let [executor (get-in ctx [:etlp.core/processors processor])]
     (executor params)))
 
