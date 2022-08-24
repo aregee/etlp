@@ -7,6 +7,7 @@
   (:gen-class))
 
 (def *etl-config (atom nil))
+(def *etlp-app (atom nil))
 
 (def create-pg-connection db/create-pg-connection)
 
@@ -99,6 +100,11 @@
                        :ctx {:name :json-reducer
                              :xform-provider (fn [filepath opts]
                                                (map (reducers/parse-line filepath opts)))}})
+(defn exec-processor
+  "run etlp processor" [ctx {:keys [processor params]}]
+  (debug (pprint ctx))
+  (let [executor (get-in ctx [:etlp.core/processors processor])]
+    (executor params)))
 
 (defn init [{:keys [components] :as params}]
   (schema)
@@ -133,7 +139,5 @@
                    (assoc acc k ((get-in ctx [:default-processors (:type ctx)]) ctx))
                    (assoc acc k ((:run ctx) ctx)))) {} processors))
 
-  (ig/init (schema))
-  
-  )
-
+  (reset! *etlp-app (ig/init (schema)))
+  (partial exec-processor @*etlp-app))

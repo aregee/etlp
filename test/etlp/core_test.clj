@@ -67,8 +67,6 @@
 
 (def etlp-app (etlp/init {:components [db-config-def json-processor-def]}))
 
-(def json-processor (get-in etlp-app [:etlp.core/processors :local-processor]))
-
-(def processor (json-processor {:key 1}))
+(def processor (etlp-app {:processor :local-processor :params {:key 1}}))
 
 (processor {:path "resources/fix/" :days 1 :foo 24})
