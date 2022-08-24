@@ -7,6 +7,7 @@
                  [cheshire "5.10.0"]
                  [clj-postgresql "0.7.0"]
                  [integrant "0.8.0"]
+                 [org.clojure/tools.logging "1.2.4"]
                  [org.clojure/core.async "0.4.500"]
                  [org.clojure/java.jdbc "0.7.11"]]
   :deploy-repositories {"releases" {:url "https://repo.clojars.org" :creds :gpg}}

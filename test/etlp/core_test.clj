@@ -1,9 +1,6 @@
 (ns etlp.core-test
   (:require [clojure.test :refer :all]
-            [cheshire.core :as json]
-            [clojure.java.io :as io]
-            [etlp.core :as etlp]
-            [etlp.reducers :as reducers]))
+            [etlp.core :as etlp :refer [logger]]))
 
 
 
@@ -29,6 +26,9 @@
                  :specs  [[:id :serial "PRIMARY KEY"]
                           [:type :varchar]
                           [:field :varchar]
+                          [:file :varchar]
+                          [:foo :varchar]
+                          [:days :varchar]
                           [:created_at :timestamp
                            "NOT NULL" "DEFAULT CURRENT_TIMESTAMP"]]})
 
@@ -47,17 +47,16 @@
             (update log-entry :field str "-improved!")))))
 
 (defn- pipeline [params]
-  (comp   ;; Pipeline transducer
+  (comp
+   (map (partial merge (dissoc params :path)))
+   (map logger)
    (filter valid-entry?)
    (keep transform-entry-if-relevant)
    (partition-all 100)))
 
-
-
 (def db-config-def {:id 1
                     :component :etlp.core/config
                     :ctx (merge {:name :db} db-config)})
-
 
 (def json-processor-def {:id 1
                          :component :etlp.core/processors
@@ -66,19 +65,10 @@
                                :table-opts table-opts
                                :xform-provider pipeline}})
 
-
-
 (def etlp-app (etlp/init {:components [db-config-def json-processor-def]}))
 
 (def json-processor (get-in etlp-app [:etlp.core/processors :local-processor]))
 
 (def processor (json-processor {:key 1}))
 
-(processor {:path "resources/" :params 1})
-
-;; (deftest e-to-e-test
-;;   (testing "etlp/create-pipeline-processor should execute without error"
-;;     (is (= true (exec-fp {:path "resources/" :days 1})))))
-;; (deftest e-to-e-test
-;;   (testing "etlp/create-pipeline-processor should execute without error"
-;;     (is (= nil nil ))))
+(processor {:path "resources/fix/" :days 1 :foo 24})

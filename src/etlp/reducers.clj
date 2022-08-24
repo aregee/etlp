@@ -40,9 +40,9 @@
      (operation (record-generator filepath))
      (read-lines filepath))))
 
-(defn parse-line [file]
+(defn parse-line [file opts]
   (fn [line]
-    (json/decode line true)))
+    (merge {:file file } (json/decode line true))))
 
 (def json-reducer
 ; JSON reducer allows to parse json files in reducible manner
@@ -52,7 +52,5 @@
   (file-reducer {:record-generator parse-line :operation map}))
 
 (defn parallel-directory-reducer [{:keys [pg-connection pipeline]}]
-  (fn [{:keys [params path]}]
-    (async/process-parallel pipeline [params] (files-processor path))
-    (when (not= pg-connection nil)
-      (db/close-connection pg-connection))))
+  (fn [{:keys [path] :as params}]
+    (async/process-parallel pipeline [params] (files-processor path))))

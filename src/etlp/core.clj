@@ -1,8 +1,9 @@
 (ns etlp.core
-  (:require   [etlp.reducers :as reducers]
-              [etlp.db :as db]
-              [integrant.core :as ig])
-  (:import [java.io BufferedReader])
+  (:require [clojure.pprint :refer [pprint]]
+            [clojure.tools.logging :refer [info debug]]
+            [etlp.db :as db]
+            [etlp.reducers :as reducers]
+            [integrant.core :as ig])
   (:gen-class))
 
 (def *etl-config (atom nil))
@@ -17,6 +18,9 @@
 
 (def file-reducer reducers/file-reducer)
 
+(defn logger [line]
+  (debug line)
+  line)
 
 (defn create-db-connection [config]
   @(create-pg-connection config))
@@ -25,23 +29,21 @@
   (fn [opts]
     (create-pg-destination db opts)))
 
-
 (defn create-json-stream [{:keys [db config table-opts xform-provider reducers sinks]}]
   (fn [opts]
     (let [directory-reducer (:directory-reducer reducers)
           sink ((:db-stream sinks) table-opts)
+          jreduce ((:json-reducer reducers) opts)
           compose-xf (fn [params]
-                       (comp (mapcat ((:json-reducer reducers) opts))   ;; Pipeline transducer
+                       (comp (mapcat jreduce)
                              (xform-provider params)
                              (map @sink)))]
       (directory-reducer {:pg-connection db :pipeline compose-xf}))))
 
-(defn create-stream-processor [])
-
 (defn custom-file-reducer [xform-provider]
   (fn [opts]
     (fn [filepath]
-      (prn filepath)
+      (info filepath)
       (eduction
        (xform-provider filepath opts)
        (reducers/read-lines filepath)))))
@@ -61,7 +63,6 @@
                 :reducers (ig/ref ::reducers)
                 :sinks (ig/ref ::sinks)
                 :default-processors (ig/ref ::default-processors)}]
-    (prn plugin)
     (swap! *etl-config assoc-in [::processors (:name ctx)] plugin)))
 
 (defmethod etlp-component ::reducers [{:keys [id component ctx]}]
@@ -97,7 +98,7 @@
                        :component ::reducers
                        :ctx {:name :json-reducer
                              :xform-provider (fn [filepath opts]
-                                               (comp (map reducers/parse-line)))}})
+                                               (map (reducers/parse-line filepath opts)))}})
 
 (defn init [{:keys [components] :as params}]
   (schema)
@@ -124,16 +125,15 @@
   (defmethod ig/init-key ::sinks [_ {:keys [db-stream]
                                      :as opts}]
     (let [sink (:sink db-stream) db (:db db-stream) bound-sink (sink db)]
-      ;; (prn bound-sink)
       (assoc opts :db-stream bound-sink)))
 
   (defmethod ig/init-key ::processors [_ processors]
-    ;; (clojure.pprint/pprint processors)
     (reduce-kv (fn [acc k ctx]
-                ;;  (prn (get-in ctx [:default-processors (:type ctx)]))
                  (if (not (nil? (:type ctx)))
                    (assoc acc k ((get-in ctx [:default-processors (:type ctx)]) ctx))
                    (assoc acc k ((:run ctx) ctx)))) {} processors))
 
-  (ig/init @*etl-config))
+  (ig/init (schema))
+  
+  )
 
