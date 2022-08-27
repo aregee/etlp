@@ -71,7 +71,7 @@
           :topology (ig/ref ::topology)
           :topics (ig/ref ::topics)}})
 
-(defn create-etlp-stream-processor [{:keys [config topic-metadata reducers topology-builder params]}]
+(defn create-etlp-stream-processor [{:keys [config topic-metadata topic-reducers topology-builder params]}]
 
 
   (if-not (get-method ig/init-key ::topics)
@@ -105,7 +105,7 @@
 
   (exec-stream (stream-conf {:kafka (:kafka config)
                              :topic-metadata topic-metadata
-                             :topic-reducers reducers
+                             :topic-reducers topic-reducers
                              :topology-builder topology-builder})))
 
 
@@ -159,7 +159,7 @@
 
 (defn create-kafka-stream [{:keys [topic xform-provider reducers sinks reducer]}]
   (fn [opts]
-    (prn opts reducer)
+    ;; (prn opts reducer)
     (let [directory-reducer (:directory-reducer reducers)
           sink (partial (:kafka-stream sinks) topic)
           data-reducer ((get reducers reducer) opts)
@@ -170,7 +170,7 @@
       ;; (pprint sinks)
       (directory-reducer {:pg-connection nil :pipeline compose-xf}))))
 
-(defn create-kstream-processor [{:keys [config topic-metadata topology-builder reducers] :as ctx}]
+(defn create-kstream-processor [{:keys [config topic-metadata topology-builder topic-reducers] :as ctx}]
   (fn [opts]
     (create-etlp-stream-processor (merge ctx {:params opts}))))
 
@@ -187,6 +187,7 @@
                 :table-opts (or (get ctx :table-opts) nil)
                 :topic (or (get ctx :topic) nil)
                 :topic-metadata (or (get ctx :topic-metadata) nil)
+                :topic-reducers (or (get ctx :topology-reducers) nil)
                 :topology-builder (or (get ctx :topology-builder) nil)
                 :reducer (or (get ctx :reducer) nil)
                 :xform-provider (or (get ctx :xform-provider) nil)
