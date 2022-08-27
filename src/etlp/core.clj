@@ -53,7 +53,7 @@
 (defn exec-stream
   [config]
   (let [stream-app (ig/init config)]
-    stream-app))
+    (get-in stream-app [:etlp.core/app :streams-app])))
 
 (defn stream-conf
   "The production config.
@@ -101,7 +101,7 @@
     (defmethod ig/init-key ::app [_ {:keys [streams-config topology]
                                      :as opts}]
     ;; (wv/view-topology topology)
-      (assoc opts :streams-app (start! (:topology topology) streams-config))))
+      (assoc opts :streams-app (fn [] (start! (:topology topology) streams-config)))))
 
   (exec-stream (stream-conf {:kafka (:kafka config)
                              :topic-metadata topic-metadata
