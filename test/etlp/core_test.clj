@@ -30,20 +30,18 @@
                           [:type :varchar]
                           [:field :varchar]
                           [:file :varchar]
-                          [:foo :varchar]
-                          [:days :varchar]
                           [:created_at :timestamp
                            "NOT NULL" "DEFAULT CURRENT_TIMESTAMP"]]})
 
 ;; The config for our Kafka Streams app
 (def kafka-config
-  {"application.id" "test-etlp-kafka-stream"
+  {"application.id" "random-etlp-kafka-stream"
    "bootstrap.servers" (or (System/getenv "BOOTSTRAP_SERVERS") "localhost:9092")
    "default.key.serde" "jackdaw.serdes.EdnSerde"
    "default.value.serde" "jackdaw.serdes.EdnSerde"
    "compression.type" "gzip"
    "max.request.size" "20971520"
-   "num.stream.threads" (or (System/getenv "NUM_STREAM_THREADS") "5")
+   "num.stream.threads" (or (System/getenv "NUM_STREAM_THREADS") "16")
    "cache.max.bytes.buffering" "0"})
 
 
@@ -61,16 +59,26 @@
           (when (re-find #"a" string)
             (update log-entry :field str "-improved!")))))
 
+(defn add-msg-id [msg]
+  (let [message-id (rand-int 10000)]
+    [message-id msg]))
+
 (defn- pipeline [params]
   (comp
-   (map (partial merge (dissoc params :path)))
+  ;;  (map (partial merge (dissoc params :path)))
   ;;  (map logger)
    (filter valid-entry?)
    (keep transform-entry-if-relevant)))
 
-(defn add-msg-id [msg]
-  (let [message-id (rand-int 10000)]
-    [message-id msg]))
+
+(def pipeline-kstream
+  (comp
+   (map (fn [[_ load]]
+          (:value load)))
+   (filter valid-entry?)
+   (keep transform-entry-if-relevant)
+   (map add-msg-id)))
+
 
 (defn- pg-pipeline [params]
   (comp
@@ -137,7 +145,7 @@
   (let [entities {:topic/test-message (assoc (:test-message topic-metadata) ::w/entity-type :topic)
                   :topic/test-message-parsed (assoc (:test-message-parsed topic-metadata) ::w/entity-type :topic)
                   :stream/test-message {::w/entity-type :kstream
-                                        ::w/xform (comp  (map logger) (map (fn [{:keys [id value]}] (json/decode value true))) (map logger))}}
+                                        ::w/xform pipeline-kstream}}
         ; We are good with this simple flow for now
         direct    [[:topic/test-message :stream/test-message]
                    [:stream/test-message :topic/test-message-parsed]]]
@@ -164,17 +172,16 @@
 ;; (pg-processor {:path "resources/fix/" :days 1 :foo 24})
 
 
+(def etlp-app (etlp/init {:components [kafka-config-def kafka-processor-def kafka-stream-processor-def]}))
 
+;; (def processor (etlp-app {:processor :kafka-json-processor :params {:key 1}}))
 
-(def etlp-app (etlp/init {:components [kafka-config-def kafka-processor-def]}))
-
-(def processor (etlp-app {:processor :kafka-json-processor :params {:key 1}}))
-
-(processor {:path "resources/fix/" :days 1 :foo 24})
+;; (processor {:path "resources/fix/" :days 1 :foo 24})
 
 
 ;; (def etlp-app (etlp/init {:components [kafka-config-def kafka-stream-processor-def]}))
 
 
 ;; (etlp-app {:processor :kafka-stream-processor :params {:key 1}})
+
 ;; (processor {:path "resources/fix/" :days 1 :foo 24})
