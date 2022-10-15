@@ -43,11 +43,10 @@
 
 (defn create-topics! [topic-metadata client-config]
   (let [admin (ja/->AdminClient client-config)]
-    (clojure.pprint/pprint (vals topic-metadata))
     (doto (ja/create-topics! admin (vals topic-metadata))
       (.setUncaughtExceptionHandler (reify Thread$UncaughtExceptionHandler
                                       (uncaughtException [_ t e]
-                                        (info e)))))))
+                                        (debug e)))))))
 
 
 (defn exec-stream
@@ -81,7 +80,6 @@
                                         :as opts}]
 
       (try
-        (prn (vals topic-metadata))
         (create-topics! topic-metadata client-config)
         (catch Exception e (str "caught exception: " (.getMessage e))))
 
@@ -154,20 +152,40 @@
   "Publish a message to the provided topic"
   (fn [topic [id payload]]
     (let [message-id id]
-      @(jc/produce! @producer topic message-id {:id message-id
-                                                :value payload}))))
+      (jc/produce! @producer topic message-id {:id message-id
+                                               :value payload}))))
+
+(defn build-lagging-transducer
+  "creates a transducer that will always run n items behind.
+   this is convenient if the pipeline contains futures, which you
+   want to start deref-ing only when a certain number are in flight"
+  [n]
+  (fn [rf]
+    (let [qv (volatile! clojure.lang.PersistentQueue/EMPTY)]
+      (fn
+        ([] (rf))
+        ([acc] (reduce rf acc @qv))
+        ([acc v]
+         (vswap! qv conj v)
+         (if (< (count @qv) n)
+           acc
+           (let [h (peek @qv)]
+             (vswap! qv pop)
+             (rf acc h))))))))
+
 
 (defn create-kafka-stream [{:keys [topic xform-provider reducers sinks reducer]}]
   (fn [opts]
-    ;; (prn opts reducer)
+    ;; (debug opts)
     (let [directory-reducer (:directory-reducer reducers)
           sink (partial (:kafka-stream sinks) topic)
           data-reducer ((get reducers reducer) opts)
           compose-xf (fn [params]
                        (comp (mapcat data-reducer)
                              (xform-provider params)
-                             (map sink)))]
-      ;; (pprint sinks)
+                             (map sink)
+                             (build-lagging-transducer (or (:throttle opts) 0))
+                             (map deref)))]
       (directory-reducer {:pg-connection nil :pipeline compose-xf}))))
 
 (defn create-kstream-processor [{:keys [config topic-metadata topology-builder topic-reducers] :as ctx}]

@@ -172,13 +172,13 @@
 ;; (pg-processor {:path "resources/fix/" :days 1 :foo 24})
 
 
-(def etlp-app (etlp/init {:components [kafka-config-def kafka-processor-def kafka-stream-processor-def]}))
+;; (def etlp-app (etlp/init {:components [kafka-config-def kafka-processor-def]}))
 
-(def processor (etlp-app {:processor :kafka-json-processor :params {:key 1}}))
+;; (def processor (etlp-app {:processor :kafka-json-processor :params {:key 1 :throttle 10000}}))
 
 ;; (processor {:path "resources/fix/" :days 1 :foo 24})
 
 
 ;; (def etlp-app (etlp/init {:components [kafka-config-def kafka-stream-processor-def]}))
 
-(def stream-app (etlp-app {:processor :kafka-stream-processor :params {:key 1}}))
+;; (def stream-app (etlp-app {:processor :kafka-stream-processor :params {:key 1}}))
