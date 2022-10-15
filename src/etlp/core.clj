@@ -8,6 +8,7 @@
             [jackdaw.client.log :as jcl]
             [jackdaw.admin :as ja]
             [willa.core :as w]
+            [willa.viz :as wv]
             [jackdaw.serdes.edn :refer [serde]])
   (:gen-class))
 
@@ -32,7 +33,9 @@
 (defn start! [topology streams-config]
   (let [builder (doto (js/streams-builder)
                   (w/build-topology! topology))]
-    ;; (wv/view-topology topology)
+    (if (streams-config "etlp.topology.visualise")
+      (wv/view-topology topology)
+      (info "Starting Streaming App" (streams-config "application.id")))
     (doto (js/kafka-streams builder
                             streams-config)
       (.setUncaughtExceptionHandler (reify Thread$UncaughtExceptionHandler
