@@ -1,9 +1,9 @@
 (ns etlp.core-test
   (:require [clojure.test :refer :all]
-            [willa.core :as w]
-            [cheshire.core :as json]
             [etlp.core :as etlp :refer [build-message-topic
-                                        create-kafka-stream create-kstream-processor logger]]))
+                                        create-kafka-stream-processor
+                                        create-kstream-topology-processor create-pg-stream-processor]]
+            [willa.core :as w]))
 
 
 
@@ -30,6 +30,7 @@
                           [:type :varchar]
                           [:field :varchar]
                           [:file :varchar]
+                          [:key :varchar]
                           [:created_at :timestamp
                            "NOT NULL" "DEFAULT CURRENT_TIMESTAMP"]]})
 
@@ -65,7 +66,7 @@
 
 (defn- pipeline [params]
   (comp
-  ;;  (map (partial merge (dissoc params :path)))
+   (map (partial merge (dissoc params :path)))
   ;;  (map logger)
    (filter valid-entry?)
    (keep transform-entry-if-relevant)))
@@ -92,21 +93,22 @@
    (map add-msg-id)))
 
 
-(def db-config-def {:id 1
-                    :component :etlp.core/config
-                    :ctx (merge {:name :db} db-config)})
+(def etlp-db-config {:id 1
+                     :component :etlp.core/config
+                     :ctx (merge {:name :db} db-config)})
 
 
-(def kafka-config-def {:id 2
-                       :component :etlp.core/config
-                       :ctx (merge {:name :kafka} kafka-config)})
+(def etlp-kafka-config {:id 2
+                        :component :etlp.core/config
+                        :ctx (merge {:name :kafka} kafka-config)})
 
-(def json-processor-def {:id 1
-                         :component :etlp.core/processors
-                         :ctx {:name :pg-processor
-                               :type :pg-json-processor
-                               :table-opts table-opts
-                               :xform-provider pg-pipeline}})
+(def etlp-pg-json-processor {:id 1
+                             :component :etlp.core/processors
+                             :ctx {:name :pg-processor
+                                   :process-fn create-pg-stream-processor
+                                   :reducer :json-reducer
+                                   :table-opts table-opts
+                                   :xform-provider pg-pipeline}})
 
 
 (def topic-meta {:topic-name "kafka-json-message"
@@ -130,13 +132,13 @@
                         :topic-config {}}))
 
 
-(def kafka-processor-def {:id 2
-                          :component :etlp.core/processors
-                          :ctx {:name :kafka-json-processor
-                                :process-fn create-kafka-stream
-                                :reducer :json-reducer
-                                :topic test-message-topic
-                                :xform-provider kafka-pipeline}})
+(def etlp-kafka-processor {:id 2
+                           :component :etlp.core/processors
+                           :ctx {:name :kafka-json-processor
+                                 :process-fn create-kafka-stream-processor
+                                 :reducer :json-reducer
+                                 :topic test-message-topic
+                                 :xform-provider kafka-pipeline}})
 
 
 (defn topology-builder
@@ -154,31 +156,33 @@
      :entities entities
      :joins {}}))
 
-(def kafka-stream-processor-def {:id 2
-                                 :component :etlp.core/processors
-                                 :ctx {:name :kafka-stream-processor
-                                       :process-fn create-kstream-processor
-                                       :topic-metadata   {:test-message test-message-topic
-                                                          :test-message-parsed test-message-parsed-topic}
-                                       :topology-builder topology-builder}})
+(def etlp-kafka-topology-processor {:id 2
+                                    :component :etlp.core/processors
+                                    :ctx {:name :kafka-stream-processor
+                                          :process-fn create-kstream-topology-processor
+                                          :topic-metadata   {:test-message test-message-topic
+                                                             :test-message-parsed test-message-parsed-topic}
+                                          :topology-builder topology-builder}})
 
 
-;; (def etlp-app (etlp/init {:components [db-config-def json-processor-def]}))
+(def etlp-app (etlp/init {:components [etlp-kafka-config etlp-db-config etlp-kafka-processor etlp-kafka-topology-processor etlp-pg-json-processor]}))
+
+(deftest e-to-e-pg-test
+  (testing "etlp/create-pipeline-processor should execute without error"
+    (let [pg-processor (etlp-app {:processor :pg-processor :params {:key 1}})]
+      (is (= nil (pg-processor {:path "resources/fix/" :days 1 :foo 24}))))))
 
 
-;; (def pg-processor (etlp-app {:processor :pg-processor :params {:key 1}}))
+(deftest e-to-e-test
+  (testing "etlp/create-pipeline-processor should execute without error"
+    (let [processor (etlp-app {:processor :kafka-json-processor :params {:key 1 :throttle 10000000}})]
+      (is (= nil (processor {:path "resources/fix/" :days 1 :foo 24}))))))
 
-
-;; (pg-processor {:path "resources/fix/" :days 1 :foo 24})
-
-
-;; (def etlp-app (etlp/init {:components [kafka-config-def kafka-processor-def]}))
-
-;; (def processor (etlp-app {:processor :kafka-json-processor :params {:key 1 :throttle 10000}}))
-
-;; (processor {:path "resources/fix/" :days 1 :foo 24})
-
-
-;; (def etlp-app (etlp/init {:components [kafka-config-def kafka-stream-processor-def]}))
-
-;; (def stream-app (etlp-app {:processor :kafka-stream-processor :params {:key 1}}))
+(deftest e-to-e-test-stream
+  (testing "etlp/create-pipeline-processor should execute without error"
+    (let [what-is-the-answer-to-life (future
+                                       (println "[Future] started computation")
+                                       (etlp-app {:processor :kafka-stream-processor :params {:key 1}})
+                                       (println "[Future] completed computation")
+                                       42)]
+      (is (= 42  @what-is-the-answer-to-life)))))

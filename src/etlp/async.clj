@@ -5,12 +5,13 @@
 
 
 ; parallel processing transducer
-(defn process-parallel [transducer params files]
+(defn process-parallel [xf params files]
   (a/<!!
    (a/pipeline
     (.availableProcessors (Runtime/getRuntime)) ;; Parallelism factor
     (doto (a/chan) (a/close!))                  ;; Output channel - /dev/null
-    (apply transducer params)
+    ;; (apply transducer params)
+    xf
     (a/to-chan files))))
 
 (comment

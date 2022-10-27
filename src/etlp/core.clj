@@ -1,136 +1,34 @@
 (ns etlp.core
   (:require [clojure.tools.logging :refer [debug info]]
-            [etlp.db :as db]
+            [etlp.stream :as es]
+            [etlp.kstream :as ek]
             [etlp.reducers :as reducers]
-            [integrant.core :as ig]
-            [jackdaw.client :as jc]
-            [jackdaw.streams :as js]
-            [jackdaw.client.log :as jcl]
-            [jackdaw.admin :as ja]
-            [willa.core :as w]
-            [willa.viz :as wv]
-            [jackdaw.serdes.edn :refer [serde]])
+            [integrant.core :as ig])
   (:gen-class))
 
 (def *etl-config (atom nil))
+
 (def *etlp-app (atom nil))
 
-(def create-pg-connection db/create-pg-connection)
+(def build-message-topic es/build-message-topic)
 
-(def create-pg-destination db/create-pg-destination)
+(def lagging-transducer es/build-lagging-transducer)
 
-(def create-pipeline-processor reducers/parallel-directory-reducer)
+(defn create-kstream-topology-processor [{:keys [config topic-metadata topology-builder topic-reducers] :as ctx}]
+  (fn [opts]
+    (ek/kafka-stream-topology-processor (merge ctx {:params opts}))))
 
-(def json-reducer reducers/json-reducer)
+(defn create-kafka-stream-processor [ctx]
+  (fn [opts]
+    (es/directory-to-kafka-stream-processor (merge ctx {:params opts}))))
 
-(def file-reducer reducers/file-reducer)
-
-
-
-;; KSTREAM app 
-
-
-(defn start! [topology streams-config]
-  (let [builder (doto (js/streams-builder)
-                  (w/build-topology! topology))]
-    (if (streams-config "etlp.topology.visualise")
-      (wv/view-topology topology)
-      (info "Starting Streaming App" (streams-config "application.id")))
-    (doto (js/kafka-streams builder
-                            streams-config)
-      (.setUncaughtExceptionHandler (reify Thread$UncaughtExceptionHandler
-                                      (uncaughtException [_ t e]
-                                        (println e))))
-      js/start)))
-
-
-(defn create-topics! [topic-metadata client-config]
-  (let [admin (ja/->AdminClient client-config)]
-    (doto (ja/create-topics! admin (vals topic-metadata))
-      (.setUncaughtExceptionHandler (reify Thread$UncaughtExceptionHandler
-                                      (uncaughtException [_ t e]
-                                        (debug e)))))))
-
-
-(defn exec-stream
-  [config]
-  (let [stream-app (ig/init config)]
-    (get-in stream-app [:etlp.core/app :streams-app])))
-
-(defn stream-conf
-  "The production config.
-  When the 'dev' alias is active, this config will not be used."
-  [conf]
-  {::topics {:client-config (select-keys (:kafka conf) ["bootstrap.servers"])
-             :topic-metadata (:topic-metadata conf)
-             :topic-reducers (:topic-reducers conf)}
-
-
-   ::topology {:topology-builder (:topology-builder conf)
-               :topics (ig/ref ::topics)}
-
-   ::app {:streams-config (:kafka conf)
-          :topology (ig/ref ::topology)
-          :topics (ig/ref ::topics)}})
-
-(defn create-etlp-stream-processor [{:keys [config topic-metadata topic-reducers topology-builder params]}]
-
-
-  (if-not (get-method ig/init-key ::topics)
-  ;; Install this only if not already installed
-
-    (defmethod ig/init-key ::topics [_ {:keys [client-config topic-metadata topic-reducers]
-                                        :as opts}]
-
-      (try
-        (create-topics! topic-metadata client-config)
-        (catch Exception e (str "caught exception: " (.getMessage e))))
-
-      (assoc opts :topic-metadata topic-metadata :topic-reducers topic-reducers)))
-
-
-  (if-not (get-method ig/init-key ::topology)
-  ;; Install this only if not already installed
-
-    (defmethod ig/init-key ::topology [_ {:keys [topology-builder topics] :as opts}]
-      (assoc opts :topology (topology-builder (:topic-metadata topics) (:topic-reducers topics)))))
-
-
-  (if-not (get-method ig/init-key ::app)
-  ;; Install this only if not already installed
-
-    (defmethod ig/init-key ::app [_ {:keys [streams-config topology]
-                                     :as opts}]
-    ;; (wv/view-topology topology)
-      (assoc opts :streams-app (fn [] (start! (:topology topology) streams-config)))))
-
-  (exec-stream (stream-conf {:kafka (:kafka config)
-                             :topic-metadata topic-metadata
-                             :topic-reducers topic-reducers
-                             :topology-builder topology-builder})))
-
+(defn create-pg-stream-processor [ctx]
+  (fn [opts]
+    (es/directory-to-db-stream-processor (merge ctx {:params opts}))))
 
 (defn logger [line]
   (debug line)
   line)
-
-(defn create-db-connection [config]
-  @(create-pg-connection config))
-
-(defn create-db-writer [db]
-  (fn [opts]
-    (create-pg-destination db opts)))
-
-(defn create-pg-stream [{:keys [db config table-opts xform-provider reducers sinks reducer]}]
-  (fn [opts]
-    (let [directory-reducer (:directory-reducer reducers)
-          sink ((:db-stream sinks) table-opts)
-          reducer-fn ((get reducers reducer) opts)
-          compose-xf (fn [params]
-                       (comp (mapcat reducer-fn)
-                             (xform-provider params)
-                             (map @sink)))]
-      (directory-reducer {:pg-connection db :pipeline compose-xf}))))
 
 (defn custom-file-reducer [xform-provider]
   (fn [opts]
@@ -140,61 +38,6 @@
        (xform-provider filepath opts)
        (reducers/read-lines filepath)))))
 
-(def serdes
-  {:key-serde (serde)
-   :value-serde (serde)})
-
-
-(defn create-kafka-producer [{:keys [config]}]
-  (delay (jc/producer config serdes)))
-
-(defn build-message-topic [cfg]
-  (merge cfg serdes))
-
-(defn publish-to-kafka! [producer]
-  "Publish a message to the provided topic"
-  (fn [topic [id payload]]
-    (let [message-id id]
-      (jc/produce! @producer topic message-id {:id message-id
-                                               :value payload}))))
-
-(defn build-lagging-transducer
-  "creates a transducer that will always run n items behind.
-   this is convenient if the pipeline contains futures, which you
-   want to start deref-ing only when a certain number are in flight"
-  [n]
-  (fn [rf]
-    (let [qv (volatile! clojure.lang.PersistentQueue/EMPTY)]
-      (fn
-        ([] (rf))
-        ([acc] (reduce rf acc @qv))
-        ([acc v]
-         (vswap! qv conj v)
-         (if (< (count @qv) n)
-           acc
-           (let [h (peek @qv)]
-             (vswap! qv pop)
-             (rf acc h))))))))
-
-
-(defn create-kafka-stream [{:keys [topic xform-provider reducers sinks reducer]}]
-  (fn [opts]
-    ;; (debug opts)
-    (let [directory-reducer (:directory-reducer reducers)
-          sink (partial (:kafka-stream sinks) topic)
-          data-reducer ((get reducers reducer) opts)
-          compose-xf (fn [params]
-                       (comp (mapcat data-reducer)
-                             (xform-provider params)
-                             (map sink)
-                             (build-lagging-transducer (or (:throttle opts) 0))
-                             (map deref)))]
-      (directory-reducer {:pg-connection nil :pipeline compose-xf}))))
-
-(defn create-kstream-processor [{:keys [config topic-metadata topology-builder topic-reducers] :as ctx}]
-  (fn [opts]
-    (create-etlp-stream-processor (merge ctx {:params opts}))))
-
 (defmulti etlp-component
   "Multi method to add extenstions to etlp"
   (fn [x]
@@ -202,7 +45,6 @@
 
 (defmethod etlp-component ::processors [{:keys [id component ctx]}]
   (let [plugin {:run (or (get ctx :process-fn) nil)
-                :db (ig/ref ::db)
                 :type (or (get ctx :type) nil)
                 :config (ig/ref ::config)
                 :table-opts (or (get ctx :table-opts) nil)
@@ -213,7 +55,6 @@
                 :reducer (or (get ctx :reducer) nil)
                 :xform-provider (or (get ctx :xform-provider) nil)
                 :reducers (ig/ref ::reducers)
-                :sinks (ig/ref ::sinks)
                 :default-processors (ig/ref ::default-processors)}]
     (swap! *etl-config assoc-in [::processors (:name ctx)] plugin)))
 
@@ -235,57 +76,32 @@
       shape
       (reset! *etl-config   {::config {:db nil
                                        :kafka nil}
-                             ::db {:conn create-db-connection
-                                   :config (ig/ref ::config)}
-                             ::reducers {:directory-reducer create-pipeline-processor
-                                         :file-reducer file-reducer}
-                             ::sinks  {:config (ig/ref ::config)
-                                       :db-stream {:sink create-db-writer
-                                                   :db (ig/ref ::db)}
-                                       :kafka-stream {:producer create-kafka-producer
-                                                      :config (ig/ref ::config)
-                                                      :sink publish-to-kafka!}}
-                             ::default-processors {:pg-json-processor {:run create-pg-stream :reducer :json-reducer}}
+                             ::reducers {:directory-reducer reducers/parallel-directory-reducer
+                                         :file-reducer reducers/file-reducer}
+                             ::default-processors {}
                              ::processors {}}))))
 
 (def schema (ig-wrap-schema {}))
 
-(def json-reducer-def {:id 1
-                       :component ::reducers
-                       :ctx {:name :json-reducer
-                             :xform-provider (fn [filepath opts]
-                                               (map (reducers/parse-line filepath opts)))}})
-(def line-reducer-def {:id 1
-                       :component ::reducers
-                       :ctx {:name :line-reducer
-                             :xform-provider (fn [filepath opts]
-                                               (map (fn [l] l)))}})
-
+(def etlp-json-reducer {:id 1
+                        :component ::reducers
+                        :ctx {:name :json-reducer
+                              :xform-provider (fn [filepath opts]
+                                                (map (reducers/parse-line filepath opts)))}})
+(def etlp-line-reducer {:id 1
+                        :component ::reducers
+                        :ctx {:name :line-reducer
+                              :xform-provider (fn [filepath opts]
+                                                (map logger))}})
 (defn exec-processor
   "run etlp processor" [ctx {:keys [processor params]}]
   (let [executor (get-in ctx [:etlp.core/processors processor])]
     (executor params)))
 
-
-(def build-pg-sink (fn [db-stream]
-                     (let [pg-sink (:sink db-stream)
-                           db (:db db-stream)
-                           bound-pg-sink (pg-sink db)]
-                       bound-pg-sink)))
-
-(def build-kafka-producer (fn [config kafka-stream]
-                            (let [kafka-sink (:sink kafka-stream)
-                                  create-producer (:producer kafka-stream)
-                                  producer (create-producer {:config (:kafka config)})
-                                  bound-kafka-sink (kafka-sink producer)]
-                              bound-kafka-sink)))
-
-
-
 (defn init [{:keys [components] :as params}]
   (schema)
-  (etlp-component json-reducer-def)
-  (etlp-component line-reducer-def)
+  (etlp-component etlp-json-reducer)
+  (etlp-component etlp-line-reducer)
   (loop [x (dec (count components))]
     (when (>= x 0)
       (etlp-component (nth components x))
@@ -294,22 +110,11 @@
 
   (defmethod ig/init-key ::config [_ {:keys [db kafka] :as opts}] opts)
 
-  (defmethod ig/init-key ::db [_ {:keys [conn config]
-                                  :as opts}]
-    (let [db (conn (:db config))]
-      db))
-
   (defmethod ig/init-key ::reducers [_ ctx]
     ctx)
 
   (defmethod ig/init-key ::default-processors [_ ctx]
     ctx)
-
-  (defmethod ig/init-key ::sinks [_ {:keys [db-stream kafka-stream config]
-                                     :as opts}]
-
-    (assoc opts :db-stream (build-pg-sink db-stream) :kafka-stream (build-kafka-producer config kafka-stream)))
-
 
   (defmethod ig/init-key ::processors [_ processors]
     (reduce-kv (fn [acc k ctx]
