@@ -168,21 +168,22 @@
 (def etlp-app (etlp/init {:components [etlp-kafka-config etlp-db-config etlp-kafka-processor etlp-kafka-topology-processor etlp-pg-json-processor]}))
 
 (deftest e-to-e-pg-test
-  (testing "etlp/create-pipeline-processor should execute without error"
+  (testing "etlp/files-to-pg-processor should execute without error"
     (let [pg-processor (etlp-app {:processor :pg-processor :params {:key 1}})]
       (is (= nil (pg-processor {:path "resources/fix/" :days 1 :foo 24}))))))
 
 
 (deftest e-to-e-test
-  (testing "etlp/create-pipeline-processor should execute without error"
+  (testing "etlp/files-to-kafka-processor should execute without error"
     (let [processor (etlp-app {:processor :kafka-json-processor :params {:key 1 :throttle 10000000}})]
       (is (= nil (processor {:path "resources/fix/" :days 1 :foo 24}))))))
 
 (deftest e-to-e-test-stream
-  (testing "etlp/create-pipeline-processor should execute without error"
-    (let [what-is-the-answer-to-life (future
+  (testing "etlp/kafka-topology-processor should execute without error for given time"
+    (let [stream-app (etlp-app {:processor :kafka-stream-processor :params {:key 1}})
+          what-is-the-answer-to-life (future
                                        (println "[Future] started computation")
-                                       (etlp-app {:processor :kafka-stream-processor :params {:key 1}})
+                                       @(delay (stream-app) 2000000)
                                        (println "[Future] completed computation")
                                        42)]
       (is (= 42  @what-is-the-answer-to-life)))))
