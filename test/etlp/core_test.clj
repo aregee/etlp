@@ -1,5 +1,6 @@
 (ns etlp.core-test
   (:require [clojure.test :refer :all]
+            [clojure.tools.logging :refer [debug]]
             [etlp.core :as etlp :refer [build-message-topic
                                         create-kafka-stream-processor
                                         create-kstream-topology-processor create-pg-stream-processor]]
@@ -182,8 +183,8 @@
   (testing "etlp/kafka-topology-processor should execute without error for given time"
     (let [stream-app (etlp-app {:processor :kafka-stream-processor :params {:key 1}})
           what-is-the-answer-to-life (future
-                                       (println "[Future] started computation")
-                                       @(delay (stream-app) 2000000)
-                                       (println "[Future] completed computation")
+                                       (debug "[Future] started computation")
+                                       (stream-app)
+                                       (debug "[Future] completed computation")
                                        42)]
       (is (= 42  @what-is-the-answer-to-life)))))

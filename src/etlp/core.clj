@@ -98,6 +98,7 @@
   (let [executor (get-in ctx [:etlp.core/processors processor])]
     (executor params)))
 
+
 (defn init [{:keys [components] :as params}]
   (schema)
   (etlp-component etlp-json-reducer)
