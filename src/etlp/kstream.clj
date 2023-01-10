@@ -66,8 +66,10 @@
                                         :as opts}]
 
       (try
+        (debug ">>>>INVOKING CREATE TOPIC <<<<<<<")
         (create-topics! topic-metadata client-config)
-        (catch Exception e (str "caught exception: " (.getMessage e))))
+        (catch Exception e
+          (debug (str "caught exception: " (.getMessage e)))))
 
       (assoc opts :topic-metadata topic-metadata :topic-reducers topic-reducers)))
 
