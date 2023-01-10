@@ -1,4 +1,5 @@
 .DS_Store
+.cred_token
 /target
 /classes
 /checkouts
