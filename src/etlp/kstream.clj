@@ -1,12 +1,12 @@
 (ns etlp.kstream
-  (:require [clojure.tools.logging :refer [debug info]]
+  (:require [clojure.tools.logging :refer [debug info warn]]
             [integrant.core :as ig]
             [jackdaw.client :as jc]
             [jackdaw.streams :as js]
             [jackdaw.client.log :as jcl]
             [jackdaw.admin :as ja]
             [willa.core :as w]
-            [willa.viz :as wv]
+            ;; [willa.viz :as wv]
             [jackdaw.serdes.edn :refer [serde]]
             [clojure.core :as clj])
   (:gen-class))
@@ -18,13 +18,14 @@
   (let [builder (doto (js/streams-builder)
                   (w/build-topology! topology))]
     (if (streams-config "etlp.topology.visualise")
-      (wv/view-topology topology)
+      ;; (wv/view-topology topology)
+      (info "Visualizer missing")
       (info "Starting Streaming App" (streams-config "application.id")))
     (doto (js/kafka-streams builder
                             streams-config)
       (.setUncaughtExceptionHandler (reify Thread$UncaughtExceptionHandler
                                       (uncaughtException [_ t e]
-                                        (println e))))
+                                        (warn e))))
       js/start)))
 
 

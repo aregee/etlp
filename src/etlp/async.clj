@@ -1,18 +1,18 @@
 (ns etlp.async
   (:require   [clojure.core.async :as a])
-  (:import [java.io BufferedReader])
+  (:import [clojure.core.async.impl.channels ManyToManyChannel])
   (:gen-class))
 
 
 ; parallel processing transducer
-(defn process-parallel [xf params files]
-  (a/<!!
-   (a/pipeline
-    (.availableProcessors (Runtime/getRuntime)) ;; Parallelism factor
-    (doto (a/chan) (a/close!))                  ;; Output channel - /dev/null
-    ;; (apply transducer params)
-    xf
-    (a/to-chan files))))
+(defn process-parallel [xf files]
+  (let [ch (if (instance? ManyToManyChannel files) files (a/to-chan files))]
+    (a/<!!
+     (a/pipeline
+      (dec (.availableProcessors (Runtime/getRuntime)));; Parallelism factor
+      (doto (a/chan) (a/close!))                  ;; Output channel - /dev/null
+      xf
+      ch))))
 
 (comment
   (defn process-with-transducers [transducer params files]

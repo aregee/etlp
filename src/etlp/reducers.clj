@@ -53,4 +53,4 @@
 
 (defn parallel-directory-reducer [{:keys [pg-connection pipeline]}]
   (fn [{:keys [path] :as params}]
-    (async/process-parallel pipeline [params] (files-processor path))))
+    (async/process-parallel pipeline (files-processor path))))

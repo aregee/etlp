@@ -1,26 +1,24 @@
 (ns etlp.stream "Local Streaming App using async chan"
-    (:require [clojure.tools.logging :refer [debug]]
+    (:require [clojure.tools.logging :refer [debug warn]]
               [etlp.db :refer [create-pg-connection create-pg-destination]]
               [integrant.core :as ig]
               [jackdaw.client :as jc]
               [jackdaw.serdes.edn :refer [serde]]
-              [jackdaw.client :as kafka]
-              [clojure.pprint :as pprint])
+              [etlp.s3 :as es3]
+              [clojure.pprint :refer [pprint]])
     (:gen-class))
 
 (def serdes
   {:key-serde (serde)
    :value-serde (serde)})
 
-
 (defn create-db-connection [config]
-  (debug config)
+  (debug "create db conn" config)
   @(create-pg-connection config))
 
 (defn create-db-writer [db]
   (fn [opts]
     (create-pg-destination db opts)))
-
 
 (defn create-kafka-producer [{:keys [config]}]
   (delay (jc/producer config serdes)))
@@ -52,7 +50,23 @@
              (vswap! qv pop)
              (rf acc h))))))))
 
-(defn create-pg-stream [{:keys [db opts params table-opts xform-provider reducers sinks reducer]}]
+(defn- s3-pg-stream [{:keys [s3-config opts params table-opts xform-provider reducers sinks reducer]}]
+  (let [bucket-reducer (:s3-bucket-reducer reducers)
+        sink @((:pg-stream sinks) table-opts)
+        s3c (es3/s3-invoke s3-config)
+        merged-opts (merge opts {:s3-client s3c :s3-config s3-config})
+        reducer-fn ((get reducers reducer) merged-opts)
+        compose-xf (comp
+                    ;; (mapcat (fn [resp] (resp :Contents)))
+                    ;; (map (fn [contents] (contents :Key)))
+                    (mapcat reducer-fn)
+                    (xform-provider params)
+                    (map sink))
+        pg-reducer (bucket-reducer {:s3-client s3c :s3-config s3-config :pipeline compose-xf})]
+    (pg-reducer opts)))
+
+
+(defn- fs-pg-stream [{:keys [db opts params table-opts xform-provider reducers sinks reducer]}]
   (let [directory-reducer (:directory-reducer reducers)
         sink ((:pg-stream sinks) table-opts)
         reducer-fn ((get reducers reducer) opts)
@@ -62,9 +76,14 @@
         pg-reducer (directory-reducer {:pg-connection db :pipeline compose-xf})]
     (pg-reducer opts)))
 
+(defn create-pg-stream [{:keys [source-type] :as args}]
+  (if (= source-type :fs)
+    (fs-pg-stream args)
+    (if (= source-type :s3)
+      (s3-pg-stream args)
+      (warn "Unsupported Stream Processor type" source-type))))
 
-
-(defn create-kafka-stream [{:keys [topic xform-provider reducers sinks reducer params opts]}]
+(defn- fs-kafka-stream [{:keys [topic xform-provider reducers sinks reducer params opts]}]
   (let [directory-reducer (:directory-reducer reducers)
         sink (partial (:kafka-stream sinks) topic)
         data-reducer ((get reducers reducer) opts)
@@ -75,9 +94,28 @@
                          (map deref))]
     ((directory-reducer {:pg-connection nil :pipeline compose-xf}) opts)))
 
+(defn- s3-kafka-stream [{:keys [s3-config topic xform-provider reducers sinks reducer params opts]}]
+  (let [bucket-reducer (:s3-bucket-reducer reducers)
+        sink (partial (:kafka-stream sinks) topic)
+        s3c (es3/s3-invoke s3-config)
+        merged-opts (merge opts {:s3-client s3c :s3-config s3-config})
+        reducer-fn ((get reducers reducer) merged-opts)
+        compose-xf (comp (mapcat reducer-fn)
+                         (xform-provider params)
+                         (map sink)
+                         (build-lagging-transducer (or (:throttle params) 500))
+                         (map deref))
+        kafka-reducer (bucket-reducer {:s3-client s3c :s3-config s3-config :pipeline compose-xf})]
+    (kafka-reducer opts)))
+
+(defn create-kafka-stream [{:keys [source-type] :as args}]
+  (if (= source-type :fs)
+    (fs-kafka-stream args)
+    (if (= source-type :s3)
+      (s3-kafka-stream args)
+      (warn "Unsupported Stream Processor type" source-type))))
 
 (def build-pg-sink (fn [db-stream]
-                    ;;  (pprint/pprint db-stream)
                      (let [pg-sink (:sink db-stream)
                            db (:db db-stream)
                            bound-pg-sink (pg-sink db)]
@@ -114,7 +152,7 @@
           :reducers (ig/ref ::reducers)}})
 
 
-(defn directory-to-kafka-stream-processor [{:keys [config reducers reducer topic xform-provider params]}]
+(defn directory-to-kafka-stream-processor [{:keys [config reducers reducer topic xform-provider params source-type]}]
 
   (defmethod ig/init-key ::reducers [_ ctx]
     ctx)
@@ -132,14 +170,17 @@
     (assoc opts :stream-app (fn [args] (create-kafka-stream (merge {:opts args :sinks sinks :reducers reducers} streams-config)))))
 
   (exec-cstream (stream-conf {:kafka (config :kafka)
+                              :s3-config (config :s3)
+                              :source-type source-type
                               :reducers reducers
                               :reducer reducer
                               :topic topic
                               :xform-provider xform-provider
                               :params params})))
 
-(defn directory-to-db-stream-processor [{:keys [config reducers reducer table-opts xform-provider params]}]
-  (debug config)
+
+(defn directory-to-db-stream-processor [{:keys [config reducers reducer table-opts xform-provider params source-type]}]
+
   (defmethod ig/init-key ::db [_ {:keys [conn config]}]
     (let [db (conn config)]
       db))
@@ -157,6 +198,8 @@
     (assoc opts :stream-app (fn [args] (create-pg-stream (merge {:opts args :sinks sinks :reducers reducers} streams-config)))))
 
   (exec-cstream (stream-conf {:db (config :db)
+                              :s3-config (config :s3)
+                              :source-type source-type
                               :reducers reducers
                               :reducer reducer
                               :table-opts table-opts

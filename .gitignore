@@ -7,6 +7,8 @@
 /.lsp
 profiles.clj
 pom.xml
+.env.local
+.env-vars
 pom.xml.asc
 *.asc
 *.jar
