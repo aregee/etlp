@@ -188,18 +188,17 @@
       (let [processor (etlp-app {:processor :fs-kafka-json-processor :params {:key 1 :throttle 10000}})]
         (is (= nil (processor {:path "resources/fix/"})))))))
 
-(comment)
-(deftest pg-s3-test
-  (testing "etlp/files-to-pg-processor should execute without error"
-    (let [pg-processor (etlp-app {:processor :s3-pg-processor :params {:key 1}})]
-      (is (= nil (pg-processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/json"}))))))
+(comment
+  (deftest pg-s3-test
+    (testing "etlp/files-to-pg-processor should execute without error"
+      (let [pg-processor (etlp-app {:processor :s3-pg-processor :params {:key 1}})]
+        (is (= nil (pg-processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/json"})))))))
 
-(comment )
+(comment (deftest kafka-s3-test
+           (testing "etlp/files-to-kafka-processor should execute without error"
+             (let [processor (etlp-app {:processor :s3-kafka-json-processor :params {:key 1 :throttle 10000}})]
+               (is (= nil (processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/json"})))))))
 
-(deftest kafka-s3-test
-  (testing "etlp/files-to-kafka-processor should execute without error"
-    (let [processor (etlp-app {:processor :s3-kafka-json-processor :params {:key 1 :throttle 10000}})]
-      (is (= nil (processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/json"}))))))
 
 ;; (stream-app (etlp-app {:processor :kafka-stream-processor :params {:key 1}})
 
