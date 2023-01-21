@@ -1,12 +1,13 @@
 (ns etlp.core-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.java.io :as io]
+            [clojure.test :refer :all]
             [clojure.tools.logging :refer [debug]]
-            [cognitect.aws.client.test-double :as test]
             [etlp.core :as etlp :refer [build-message-topic
                                         create-kafka-stream-processor
                                         create-kstream-topology-processor create-pg-stream-processor]]
+            [etlp.reducers :refer [lines-reducible]]
             [willa.core :as w]
-            [clojure.pprint :refer [pprint]]))
+            [clojure.string :as s]))
 
 (def db-config
   {:host (System/getenv "DB_HOSTNAME")
@@ -56,6 +57,8 @@
                         :partition-count 1
                         :replication-factor 1
                         :topic-config {}}))
+
+
 
 (defn valid-entry? [log-entry]
   (not= (:type log-entry) "empty"))
@@ -175,6 +178,27 @@
                                        etlp-s3-kafka-processor
                                        etlp-fs-kafka-processor
                                        etlp-kafka-topology-processor]}))
+
+
+
+(deftest test-lines-reducible
+  (let [test-file (java.io.File. "resources/test.txt")
+        test-string "line1\nline2\nline3\n"
+        test-reader (io/reader test-file)]
+    (with-open [w (io/writer test-file)]
+      (.write w test-string))
+    (testing "lines-reducible processes all lines in the file"
+      (let [result (transduce (map #(str "Processed: " %))
+                              conj []
+                              (lines-reducible test-reader))]
+        (is (= ["Processed: line1" "Processed: line2" "Processed: line3"] result)))
+      (testing "lines-reducible closes the reader after processing"
+        (let [closed? (try (.ready test-reader)
+                           (catch java.io.IOException e
+                             (if (s/includes? (.getMessage e) "Stream closed")
+                               true
+                               false)))]
+          (is (= closed? true)))))))
 
 (comment
   (deftest pg-fs-test
