@@ -1,13 +1,16 @@
 (ns etlp.core-test
   (:require [clojure.java.io :as io]
+            [clojure.string :as s]
             [clojure.test :refer :all]
             [clojure.tools.logging :refer [debug]]
             [etlp.core :as etlp :refer [build-message-topic
                                         create-kafka-stream-processor
                                         create-kstream-topology-processor create-pg-stream-processor]]
             [etlp.reducers :refer [lines-reducible]]
+            [etlp.s3 :refer [hl7-xform s3-invoke stream-files-from-s3-bucket
+                             wrap-record]]
             [willa.core :as w]
-            [clojure.string :as s]))
+            [cheshire.core :as json]))
 
 (def db-config
   {:host (System/getenv "DB_HOSTNAME")
@@ -38,6 +41,12 @@
                           [:key :varchar]
                           [:created_at :timestamp
                            "NOT NULL" "DEFAULT CURRENT_TIMESTAMP"]]})
+
+(def table-hl7-opts {:table :test_hl7_log
+                     :specs  [[:id :serial "PRIMARY KEY"]
+                              [:etlp_raw :jsonb]
+                              [:created_at :timestamp
+                               "NOT NULL" "DEFAULT CURRENT_TIMESTAMP"]]})
 
 (def test-message-topic
   (build-message-topic {:topic-name "kafka-json-message"
@@ -78,6 +87,14 @@
   (let [message-id (rand-int 10000)]
     [message-id msg]))
 
+(defn- pipeline-hl7v2 [params]
+  (comp
+   (map wrap-record)
+   (map (fn [recrd]
+          (println recrd)
+          {:etlp_raw (json/decode recrd)}))
+   (partition-all 10000)))
+
 (defn- pipeline [params]
   (comp
   ;;  (map (fn [log] (pprint log) log))
@@ -110,14 +127,21 @@
                         :component :etlp.core/config
                         :ctx (merge {:name :kafka} kafka-config)})
 
+(def etlp-s3-hl7-reducer {:id 2
+                          :component :etlp.core/reducers
+                          :ctx {:name :hl7-reducer-s3
+                                :source-type :s3
+                                :xform-provider (fn [filepath opts]
+                                                  (hl7-xform {}))}})
+
 (def etlp-pg-json-processor {:id 4
                              :component :etlp.core/processors
                              :ctx {:name :s3-pg-processor
                                    :source-type :s3
                                    :process-fn create-pg-stream-processor
-                                   :reducer :json-reducer-s3
-                                   :table-opts table-opts
-                                   :xform-provider pg-pipeline}})
+                                   :reducer :hl7-reducer-s3
+                                   :table-opts table-hl7-opts
+                                   :xform-provider pipeline-hl7v2}})
 
 (def etlp-fs-pg-json-processor {:id 5
                                 :component :etlp.core/processors
@@ -173,6 +197,7 @@
 (def etlp-app (etlp/init {:components [etlp-db-config
                                        etlp-kafka-config
                                        etlp-s3-config
+                                       etlp-s3-hl7-reducer
                                        etlp-pg-json-processor
                                        etlp-fs-pg-json-processor
                                        etlp-s3-kafka-processor
@@ -200,6 +225,18 @@
                                false)))]
           (is (= closed? true)))))))
 
+(def config-map {:client (s3-invoke s3-config)
+                 :bucket "platform-dev-env"
+                 :prefix "stormbreaker/hl7"
+                 :xform-provider (fn [params]
+                                   (comp
+                                    ;; (cat (fn [log]  (log :Contents)))
+                                    (keep (fn [log] (log :Key)))))
+                 :params {:source-type "DooMEternal"}})
+
+;; (stream-files-from-s3-bucket config-map)
+
+
 (comment
   (deftest pg-fs-test
     (testing "etlp/files-to-pg-processor should execute without error"
@@ -212,16 +249,16 @@
       (let [processor (etlp-app {:processor :fs-kafka-json-processor :params {:key 1 :throttle 10000}})]
         (is (= nil (processor {:path "resources/fix/"})))))))
 
-(comment
-  (deftest pg-s3-test
-    (testing "etlp/files-to-pg-processor should execute without error"
-      (let [pg-processor (etlp-app {:processor :s3-pg-processor :params {:key 1}})]
-        (is (= nil (pg-processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/json"})))))))
+(deftest pg-s3-test
+  (testing "etlp/files-to-pg-processor should execute without error"
+    (let [pg-processor (etlp-app {:processor :s3-pg-processor :params {:key 1}})]
+      (is (= nil (pg-processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "messages"}))))))
 
-(comment (deftest kafka-s3-test
-           (testing "etlp/files-to-kafka-processor should execute without error"
-             (let [processor (etlp-app {:processor :s3-kafka-json-processor :params {:key 1 :throttle 10000}})]
-               (is (= nil (processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/json"})))))))
+(comment
+  (deftest kafka-s3-test
+    (testing "etlp/files-to-kafka-processor should execute without error"
+      (let [processor (etlp-app {:processor :s3-kafka-json-processor :params {:key 1 :throttle 10000}})]
+        (is (= nil (processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/json"})))))))
 
 
 ;; (stream-app (etlp-app {:processor :kafka-stream-processor :params {:key 1}})
@@ -240,9 +277,7 @@
             (println (json/encode (rand-obj)))))))))
 
 (comment "Test cases Block"
-
-
-
+         
          (def topic-meta {:topic-name "kafka-json-message"
                           :partition-count 16
                           :replication-factor 1

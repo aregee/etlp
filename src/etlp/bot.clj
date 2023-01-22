@@ -1,13 +1,14 @@
 (ns etlp.bot
-  (:require [airbyte.protocol :as airbyte]
-            [clojure.core.async :as async :refer [<! >! chan go pipe pipeline]]
+  (:require [clojure.core.async :as async :refer [<! >! chan go pipe pipeline]]
             [clojure.data.json :as json]
             [clojure.java.io :as io]
-            [loom.core :as loom]
             [cognitect.aws.api :as aws]))
 
+;; [loom.core :as loom]
+;; [airbyte.protocol :as airbyte]
+
 (defn list-objects-pipeline [{:keys [client bucket prefix]}]
-  (let [list-objects-request {:op :ListObjects :request {:Bucket bucket :Prefix prefix}}]
+  (let [list-objects-request {:op :ListObjectsV2 :request {:Bucket bucket :Prefix prefix}}]
     (pipeline 1 (chan 1) (fn [response] (:Contents response)) (aws/invoke-async client list-objects-request))))
 
 (defn get-object-pipeline [{:keys [client bucket files-channel output-channel error-channel]}]
@@ -20,9 +21,6 @@
                 input-stream))
             files-channel))
 
-
-
-
 (defn stream-files-from-s3-bucket [{:keys [client bucket prefix xform-provider params]}]
   (let [error-channel (chan 1)
         files-channel (list-objects-pipeline {:client client :bucket bucket :prefix prefix})
@@ -34,7 +32,7 @@
           (clojure.core.async/to-chan (io/writer *out*)))
     (go (while true
           (let [error (<! error-channel)]
-            (println (json/write-str (airbyte/wrap-log error))))))))
+            (println (json/write-str error)))))))
 
 (comment
 
@@ -45,7 +43,7 @@
                     :chan/get-object-pipeleine (assoc (:get-object-pipeline topic-metadata) :etlp/entity-type :channel)
                     :chan/transform-message {:etlp/entity-type :channel
                                              :etlp/xform (comp
-                                                          (map airbyte/wrap-record)
+                                                          ;; (map airbyte/wrap-record)
                                                           (map json/write-str))}}
         ; We are good with this simple flow for now we can move data between clojure channels via transducers 
         ; through a DAG like workflow
@@ -78,27 +76,27 @@
 
   (def my-dag (build-dag mock-topology))
 
-(defn traverse-dag [dag]
-  (let [entities (:entities dag)
-        workflow (:workflow dag)
-        channels (atom {})
-        error-channel (chan 1)]
-    (doseq [edge workflow]
-      (let [[from-node to-node] edge
-            from-channel (get @channels from-node)
-            to-channel (get @channels to-node)
-            xform-fn (:etlp/xform (get entities to-node))]
-        (if (nil? from-channel)
-          (let [from-fn (:etlp/fn (get entities from-node))
-                from-channel (from-fn {})]
-            (swap! channels assoc from-node from-channel)))
-        (if (nil? to-channel)
-          (let [to-channel (chan 1)]
-            (swap! channels assoc to-node to-channel)))
-        (async/pipe (async/pipeline 1 to-channel xform-fn (filter #(not (:error %)) from-channel))
-                    (async/to-chan (async/go (while true
-                                               (let [error (<! error-channel)]
-                                                 (println (json/write-str error)))))))))))
+  (defn traverse-dag [dag]
+    (let [entities (:entities dag)
+          workflow (:workflow dag)
+          channels (atom {})
+          error-channel (chan 1)]
+      (doseq [edge workflow]
+        (let [[from-node to-node] edge
+              from-channel (get @channels from-node)
+              to-channel (get @channels to-node)
+              xform-fn (:etlp/xform (get entities to-node))]
+          (if (nil? from-channel)
+            (let [from-fn (:etlp/fn (get entities from-node))
+                  from-channel (from-fn {})]
+              (swap! channels assoc from-node from-channel)))
+          (if (nil? to-channel)
+            (let [to-channel (chan 1)]
+              (swap! channels assoc to-node to-channel)))
+          (async/pipe (async/pipeline 1 to-channel xform-fn (filter #(not (:error %)) from-channel))
+                      (async/to-chan (async/go (while true
+                                                 (let [error (<! error-channel)]
+                                                   (println (json/write-str error)))))))))))
   (def core-executor (fn [spec]
                      ; Traverse the topoplogy for each entitiy in :entities, it would have a key of names like :list-object-pipeline etc which would be 
                      ; a function it should return a core.asycn channel based on the information in the map

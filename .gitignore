@@ -10,6 +10,7 @@ pom.xml
 .env.local
 .env-vars
 pom.xml.asc
+test/messages/
 *.asc
 *.jar
 *.class
