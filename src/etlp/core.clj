@@ -28,6 +28,11 @@
   (fn [opts]
     (es/directory-to-db-stream-processor (merge ctx {:params opts}))))
 
+(defn create-stdout-stream-processor [ctx]
+  (fn [opts]
+    (es/directory-to-stdout-stream-processor (merge ctx {:params opts}))))
+
+
 (defn logger [line]
   (debug line)
   line)
@@ -93,6 +98,7 @@
                                        :s3 nil}
                              ::reducers {:directory-reducer reducers/parallel-directory-reducer
                                          :s3-bucket-reducer es3/parallel-bucket-reducer
+                                         :stdout-s3-reducer es3/bucket-stdout-reducer
                                          :file-reducer reducers/file-reducer}
                              ::default-processors {}
                              ::processors {}}))))

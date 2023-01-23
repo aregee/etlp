@@ -1,16 +1,16 @@
 (ns etlp.core-test
-  (:require [clojure.java.io :as io]
+  (:require [cheshire.core :as json]
+            [clojure.java.io :as io]
             [clojure.string :as s]
             [clojure.test :refer :all]
             [clojure.tools.logging :refer [debug]]
             [etlp.core :as etlp :refer [build-message-topic
                                         create-kafka-stream-processor
-                                        create-kstream-topology-processor create-pg-stream-processor]]
+                                        create-kstream-topology-processor create-pg-stream-processor create-stdout-stream-processor]]
             [etlp.reducers :refer [lines-reducible]]
-            [etlp.s3 :refer [hl7-xform s3-invoke stream-files-from-s3-bucket
-                             wrap-record]]
-            [willa.core :as w]
-            [cheshire.core :as json]))
+            [etlp.s3 :refer [s3-invoke]]
+            [etlp.utils :refer [wrap-record]]
+            [willa.core :as w]))
 
 (def db-config
   {:host (System/getenv "DB_HOSTNAME")
@@ -69,6 +69,54 @@
 
 
 
+(defn record-start? [log-line]
+  (.startsWith log-line "MSH"))
+
+(def invalid-msg? (complement record-start?))
+
+(defn is-valid-hl7? [msg]
+  (cond-> []
+    (invalid-msg? msg) (conj "Message should start with MSH segment")
+    (< (.length msg) 8) (conj "Message is too short (MSH truncated)")))
+
+(defn next-log-record [ctx hl7-lines]
+  (let [head (first hl7-lines)
+        body (take-while (complement record-start?) (rest hl7-lines))]
+    (remove nil? (conj body head))))
+
+(defn hl7-xform
+  "Returns a lazy sequence of lists like partition, but may include
+  partitions with fewer than n items at the end.  Returns a stateful
+  transducer when no collection is provided."
+  ([ctx]
+   (fn [rf]
+     (let [a (java.util.ArrayList.)]
+       (fn
+         ([] (rf))
+         ([result]
+          (let [result (if (.isEmpty a)
+                         result
+                         (let [v (vec (.toArray a))]
+                             ;;clear first!
+                           (.clear a)
+                           (unreduced (rf result v))))]
+            (rf result)))
+         ([result input]
+          (.add a input)
+          (if (and (> (count a) 1) (= true (record-start? input)))
+            (let [v (vec (.toArray a))]
+              (.clear a)
+              (.add a (last v))
+              (rf result (drop-last v)))
+            result))))))
+
+  ([ctx log-lines]
+   (lazy-seq
+    (when-let [s (seq log-lines)]
+      (let [record (doall (next-log-record ctx s))]
+        (cons record
+              (hl7-xform ctx (nthrest s (count record)))))))))
+
 (defn valid-entry? [log-entry]
   (not= (:type log-entry) "empty"))
 
@@ -91,9 +139,12 @@
   (comp
    (map wrap-record)
    (map (fn [recrd]
-          (println recrd)
           {:etlp_raw (json/decode recrd)}))
-   (partition-all 10000)))
+   (partition-all 100)))
+
+(defn- stdout-pipeline-hl7v2 [params]
+  (comp
+   (map wrap-record)))
 
 (defn- pipeline [params]
   (comp
@@ -127,12 +178,13 @@
                         :component :etlp.core/config
                         :ctx (merge {:name :kafka} kafka-config)})
 
-(def etlp-s3-hl7-reducer {:id 2
+(def etlp-s3-hl7-reducer {:id 9
                           :component :etlp.core/reducers
                           :ctx {:name :hl7-reducer-s3
                                 :source-type :s3
                                 :xform-provider (fn [filepath opts]
-                                                  (hl7-xform {}))}})
+                                                  (comp
+                                                   (hl7-xform {})))}})
 
 (def etlp-pg-json-processor {:id 4
                              :component :etlp.core/processors
@@ -142,6 +194,13 @@
                                    :reducer :hl7-reducer-s3
                                    :table-opts table-hl7-opts
                                    :xform-provider pipeline-hl7v2}})
+
+(def etlp-stdout-hl7-processor {:id 8
+                                :component :etlp.core/processors
+                                :ctx {:name :s3-stdout-processor
+                                      :source-type :s3
+                                      :process-fn create-stdout-stream-processor
+                                      :reducer :hl7-reducer-s3}})
 
 (def etlp-fs-pg-json-processor {:id 5
                                 :component :etlp.core/processors
@@ -202,7 +261,8 @@
                                        etlp-fs-pg-json-processor
                                        etlp-s3-kafka-processor
                                        etlp-fs-kafka-processor
-                                       etlp-kafka-topology-processor]}))
+                                       etlp-kafka-topology-processor
+                                       etlp-stdout-hl7-processor]}))
 
 
 
@@ -227,10 +287,9 @@
 
 (def config-map {:client (s3-invoke s3-config)
                  :bucket "platform-dev-env"
-                 :prefix "stormbreaker/hl7"
+                 :prefix "messages"
                  :xform-provider (fn [params]
                                    (comp
-                                    ;; (cat (fn [log]  (log :Contents)))
                                     (keep (fn [log] (log :Key)))))
                  :params {:source-type "DooMEternal"}})
 
@@ -251,8 +310,8 @@
 
 (deftest pg-s3-test
   (testing "etlp/files-to-pg-processor should execute without error"
-    (let [pg-processor (etlp-app {:processor :s3-pg-processor :params {:key 1}})]
-      (is (= nil (pg-processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "messages"}))))))
+    (let [pg-processor (etlp-app {:processor :s3-stdout-processor :params {:key 1}})]
+      (is (= nil (pg-processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/hl7"}))))))
 
 (comment
   (deftest kafka-s3-test
@@ -277,7 +336,7 @@
             (println (json/encode (rand-obj)))))))))
 
 (comment "Test cases Block"
-         
+
          (def topic-meta {:topic-name "kafka-json-message"
                           :partition-count 16
                           :replication-factor 1

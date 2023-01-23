@@ -83,6 +83,26 @@
       (s3-pg-stream args)
       (warn "Unsupported Stream Processor type" source-type))))
 
+(defn- s3-stdout-stream [{:keys [s3-config opts reducers reducer]}]
+  (let [bucket-reducer (:stdout-s3-reducer reducers)
+        s3c (es3/s3-invoke s3-config)
+        merged-opts (merge opts {:s3-client s3c :s3-config s3-config})
+        reducer-fn ((get reducers reducer) merged-opts)
+        compose-xf (comp
+                    (mapcat reducer-fn)
+                    ;; (keep (fn [recrd] (println recrd)))
+                    )
+        processor (bucket-reducer {:s3-client s3c :s3-config s3-config :pipeline compose-xf})]
+    (processor opts)))
+
+
+(defn create-stdout-stream [{:keys [source-type] :as args}]
+  (if (= source-type :s3)
+    (s3-stdout-stream args)
+    (if (= source-type :fs)
+      (warn "TODO :: Implement fs stdout")
+      (warn "Unsupported Stream Processor type" source-type))))
+
 (defn- fs-kafka-stream [{:keys [topic xform-provider reducers sinks reducer params opts]}]
   (let [directory-reducer (:directory-reducer reducers)
         sink (partial (:kafka-stream sinks) topic)
@@ -151,6 +171,30 @@
           :sinks (ig/ref ::sinks)
           :reducers (ig/ref ::reducers)}})
 
+(defn- stdout-stream-conf
+  "The production config.
+  When the 'dev' alias is active, this config will not be used."
+  [conf]
+  {::reducers (:reducers conf)
+
+   ::app {:streams-config conf
+          :reducers (ig/ref ::reducers)}})
+
+
+(defn directory-to-stdout-stream-processor [{:keys [config reducers reducer params source-type]}]
+
+  (defmethod ig/init-key ::reducers [_ ctx]
+    ctx)
+
+  (defmethod ig/init-key ::app [_ {:keys [streams-config reducers]
+                                   :as opts}]
+    (assoc opts :stream-app (fn [args] (create-stdout-stream (merge {:opts args :reducers reducers} streams-config)))))
+
+  (exec-cstream (stdout-stream-conf {:s3-config (config :s3)
+                              :source-type source-type
+                              :reducers reducers
+                              :reducer reducer
+                              :params params})))
 
 (defn directory-to-kafka-stream-processor [{:keys [config reducers reducer topic xform-provider params source-type]}]
 
