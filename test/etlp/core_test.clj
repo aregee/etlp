@@ -182,7 +182,7 @@
                           :component :etlp.core/reducers
                           :ctx {:name :hl7-reducer-s3
                                 :source-type :s3
-                                :xform-provider (fn [filepath opts]
+                                :xform-provider (fn [& args]
                                                   (comp
                                                    (hl7-xform {})))}})
 
@@ -311,7 +311,7 @@
 (deftest pg-s3-test
   (testing "etlp/files-to-pg-processor should execute without error"
     (let [pg-processor (etlp-app {:processor :s3-stdout-processor :params {:key 1}})]
-      (is (= nil (pg-processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/hl7"}))))))
+      (is (= nil (pg-processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/small-hl7"}))))))
 
 (comment
   (deftest kafka-s3-test

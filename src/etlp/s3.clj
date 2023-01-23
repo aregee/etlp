@@ -1,16 +1,36 @@
 (ns etlp.s3
-  (:require
-   [clojure.core.async :as async :refer [<! >! chan go pipeline pipe]]
-   [clojure.core.async.impl.protocols :as impl]
-   [clojure.tools.logging.readable :refer [debug info warn]]
-   [cognitect.aws.client.api :as aws]
-   [cognitect.aws.credentials :as credentials]
-   [etlp.async :refer [process-parallel]]
-   [etlp.reducers :refer [lines-reducible]]
-   [etlp.utils :refer [wrap-error wrap-record wrap-log]])
+  (:require [clojure.core.async :as async :refer [>! chan go pipe pipeline]]
+            [clojure.core.async.impl.protocols :as impl]
+            [clojure.tools.logging.readable :refer [debug info warn]]
+            [cognitect.aws.client.api :as aws]
+            [cognitect.aws.credentials :as credentials]
+            [clojure.pprint :refer [pprint]]
+            [etlp.async :refer [process-parallel]] ;; [etlp.core-test :refer [hl7-xform]]
+            [etlp.reducers :refer [lines-reducible]]
+            [etlp.utils :refer [wrap-error wrap-log wrap-record]])
 
   (:import [java.io BufferedReader InputStreamReader])
   (:gen-class))
+
+
+(defn s3-reducible [xf blob]
+  (try
+    (eduction
+     xf
+     (-> blob
+         :Body
+         InputStreamReader.
+         BufferedReader.
+         lines-reducible))
+    (catch Exception e
+      (debug e)
+      (throw e))))
+
+(comment
+  (eduction
+   (lines-reducible
+    (BufferedReader.
+     (InputStreamReader. (s3-reducible :s :Body))))))
 
 (defn stream-file [{:keys [client bucket key]}]
   (aws/invoke client {:op :GetObject :request {:Bucket bucket :Key key}}))
@@ -52,30 +72,38 @@
 
 (def pf (fn []
           (->
-           (.availableProcessors (Runtime/getRuntime))
-           dec)))
+           (.availableProcessors (Runtime/getRuntime)))))
 
-(defn list-objects-pipeline [{:keys [client bucket prefix output-channel xform-provider error-channel aws-ch]}]
+(defn list-objects-pipeline [{:keys [client bucket prefix output-channel error-channel aws-ch]}]
   (let [list-objects-request {:op :ListObjectsV2
                               :ch aws-ch
                               :request {:Bucket bucket :Prefix prefix}}]
 
-    (pipeline (pf) output-channel
-              (xform-provider)
-              (aws/invoke-async client list-objects-request)
-              (fn [input-stream]
-                (go (>! error-channel (println {:error (.getMessage input-stream)})))))))
+    (async/pipeline-async 2 output-channel
+                          (fn [acc result]
+                            (let [contents (acc :Contents) pages (acc :KeyCount)]
+                              (doseq [entry contents]
+                                (println entry)
+                                (go (>! result entry)))
+                              (async/close! result)))
+                          (aws/invoke-async client list-objects-request)
+                          (fn [input-stream]
+                            (go (>! error-channel (wrap-error {:error (.getMessage input-stream)})))))))
 
-(defn get-object-pipeline [{:keys [client bucket xform files-channel output-channel error-channel]}]
-  (async/<!!
-   (pipeline (pf)
-             output-channel
-             (comp
-              xform
-              (map wrap-record))
-             files-channel
-             (fn [input-stream]
-               (go (>! error-channel (println {:error (.getMessage input-stream)})))))))
+(defn get-object-pipeline [{:keys [client bucket files-channel output-channel error-channel]}]
+  (async/pipeline-async 2
+                        output-channel
+                        (fn [acc res]
+                          (let [content (aws/invoke-async
+                                         client {:op :GetObject
+                                                 :ch output-channel
+                                                 :request {:Bucket bucket :Key (acc :Key)}})]
+
+                            (go (>! res (-> content)))
+                            (async/close! res)))
+                        files-channel
+                        (fn [input-stream]
+                          (go (>! error-channel (wrap-error {:error (.getMessage input-stream)}))))))
 
 
 (defn stream-files-from-s3-bucket [{:keys [client bucket prefix xform-provider params]}]
@@ -84,37 +112,56 @@
         files-channel (chan)
         output-channel (chan)
         stdout-channel (chan)
-        transducer (xform-provider {:s3-client client :s3-config {} :bucket bucket})
-        list-objects (list-objects-pipeline
-                      {:client client
-                       :bucket bucket
-                       :prefix prefix
-                       :aws-ch base-read
-                       :xform-provider (fn []
-                                         (comp
-                                          ;; (take-while (fn [item]
-                                          ;;               (if (= (count (item :Contents)) (item :KeyCount))
-                                          ;;                 (do (async/close! base-read) true)
-                                          ;;                 true)))
-                                          (map (fn [log]
-                                                 (log :Contents)))
-                                          cat))
-                       :output-channel files-channel
-                       :error-channel error-channel})]
-    (pipeline 1 stdout-channel (map wrap-log) files-channel)
-    
-    (pipeline
-     1
-     (doto (chan) (async/close!))
-     (keep (fn [log] (println log)))
-     (pipe output-channel (pipe error-channel stdout-channel)))
-    
+        transducer (xform-provider {:s3-client client :s3-config {} :bucket bucket})]
+
+    (list-objects-pipeline
+     {:client client
+      :bucket bucket
+      :prefix prefix
+      :aws-ch base-read
+      :xform-provider (fn []
+                        (comp
+                         (map (fn [log]
+                                (log :Contents)))
+                         cat))
+      :output-channel files-channel
+      :error-channel error-channel})
+
     (get-object-pipeline {:client client
                           :bucket bucket
                           :xform transducer
                           :files-channel files-channel
                           :output-channel output-channel
-                          :error-channel error-channel})))
+                          :error-channel error-channel})
+
+    (pipeline 1 stdout-channel
+              (map wrap-log)
+              files-channel
+              true?
+              (fn [input-stream]
+                (go (>! error-channel (wrap-error {:error (.getMessage input-stream)})))))
+
+    (pipe error-channel stdout-channel)
+
+
+    (pipeline
+     1
+     (doto (chan) (async/close!))
+     (comp
+      (map (fn [l] (println l) l)))
+     stdout-channel
+     true?
+     (fn [input-stream]
+       (go (>! error-channel (wrap-error {:error (.getMessage input-stream)})))))
+
+    (async/<!!
+     (pipeline (pf)
+               stdout-channel
+               (comp transducer (map wrap-record))
+               output-channel
+               true?
+               (fn [input-stream]
+                 (go (>! error-channel (wrap-error {:error (.getMessage input-stream)}))))))))
 
 (def bucket-stdout-reducer
   (fn [{:keys [pipeline s3-client s3-config]}]
