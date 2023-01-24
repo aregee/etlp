@@ -96,11 +96,25 @@
     (processor opts)))
 
 
+(defn- parallel-stdout-stream [{:keys [s3-config opts reducers xform-provider params reducer]}]
+  (let [bucket-reducer (:s3-bucket-reducer reducers)
+        s3c (es3/s3-invoke s3-config)
+        merged-opts (merge opts {:s3-client s3c :s3-config s3-config})
+        reducer-fn ((get reducers reducer) merged-opts)
+        compose-xf (comp
+                    (mapcat reducer-fn)
+                    (xform-provider params)
+                    ;; (keep (fn [recrd] (println recrd)))
+                    )
+        processor (bucket-reducer {:s3-client s3c :s3-config s3-config :pipeline compose-xf})]
+    (processor opts)))
+
+
 (defn create-stdout-stream [{:keys [source-type] :as args}]
-  (if (= source-type :s3)
+  (if (= source-type :fs)
     (s3-stdout-stream args)
-    (if (= source-type :fs)
-      (warn "TODO :: Implement fs stdout")
+    (if (= source-type :s3)
+      (parallel-stdout-stream args)
       (warn "Unsupported Stream Processor type" source-type))))
 
 (defn- fs-kafka-stream [{:keys [topic xform-provider reducers sinks reducer params opts]}]
@@ -181,14 +195,14 @@
           :reducers (ig/ref ::reducers)}})
 
 
-(defn directory-to-stdout-stream-processor [{:keys [config reducers reducer params source-type]}]
+(defn directory-to-stdout-stream-processor [{:keys [config reducers reducer params source-type] :as proc-def}]
 
   (defmethod ig/init-key ::reducers [_ ctx]
     ctx)
 
   (defmethod ig/init-key ::app [_ {:keys [streams-config reducers]
                                    :as opts}]
-    (assoc opts :stream-app (fn [args] (create-stdout-stream (merge {:opts args :reducers reducers} streams-config)))))
+    (assoc opts :stream-app (fn [args] (create-stdout-stream (merge {:opts args :reducers reducers} streams-config proc-def)))))
 
   (exec-cstream (stdout-stream-conf {:s3-config (config :s3)
                               :source-type source-type

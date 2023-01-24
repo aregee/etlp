@@ -49,9 +49,10 @@
 (defn dynamic-s3-file-reducer [xform-provider]
   (fn [opts]
     (fn [s3item]
-      ;; (println s3item)
-      (info "Processing:: " (opts :bucket))
-      ((partial es3/s3-reducible (xform-provider (opts :bucket) opts)) s3item))))
+      (info "Processing:: " (opts :bucket) (s3item :Key)) 
+      (eduction
+       (xform-provider (opts :bucket) opts)
+       (es3/s3-read-lines (merge opts s3item))))))
 
 (defmulti etlp-component
   "Multi method to add extenstions to etlp"

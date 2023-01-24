@@ -21,12 +21,12 @@
 
 (def kafka-config
   {"application.id" "multiple-etlp-kafka-stream"
-   "bootstrap.servers" (or (System/getenv "BOOTSTRAP_SERVERS") "localhost:9092")
+   "bootstrap.servers" (or (System/getenv "BOOTSTRAP_SERVERS") "localhost:9092,localhost:9093,localhost:9094")
    "default.key.serde" "jackdaw.serdes.EdnSerde"
    "default.value.serde" "jackdaw.serdes.EdnSerde"
    "compression.type" "gzip"
    "max.request.size" "20971520"
-   "num.stream.threads" (or (System/getenv "NUM_STREAM_THREADS") "4")
+   "num.stream.threads" (or (System/getenv "NUM_STREAM_THREADS") "1")
    "cache.max.bytes.buffering" "0"})
 
 (def s3-config {:region "us-east-1"
@@ -144,6 +144,7 @@
 
 (defn- stdout-pipeline-hl7v2 [params]
   (comp
+   (map (fn [segments] (s/join "\r" segments)))
    (map wrap-record)))
 
 (defn- pipeline [params]
@@ -164,6 +165,10 @@
 
 (defn- kafka-raw-pipeline [params]
   (comp
+   (map (fn [segments] (s/join "\r" segments)))
+   (map wrap-record)
+   (map (fn [recrd]
+          {:etlp_raw (json/decode recrd)}))
    (map add-msg-id)))
 
 (def etlp-db-config {:id 1
@@ -182,9 +187,8 @@
                           :component :etlp.core/reducers
                           :ctx {:name :hl7-reducer-s3
                                 :source-type :s3
-                                :xform-provider (fn [& args]
-                                                  (comp
-                                                   (hl7-xform {})))}})
+                                :xform-provider (fn [filepath opts]
+                                                  (hl7-xform {}))}})
 
 (def etlp-pg-json-processor {:id 4
                              :component :etlp.core/processors
@@ -202,10 +206,18 @@
                                       :process-fn create-stdout-stream-processor
                                       :reducer :hl7-reducer-s3}})
 
+(def etlp-s3-stdout-hl7-processor {:id 8
+                                   :component :etlp.core/processors
+                                   :ctx {:name :stdout-processor
+                                         :source-type :s3
+                                         :process-fn create-stdout-stream-processor
+                                         :reducer :hl7-reducer-s3
+                                         :xform-provider stdout-pipeline-hl7v2}})
+
 (def etlp-fs-pg-json-processor {:id 5
                                 :component :etlp.core/processors
                                 :ctx {:name :fs-pg-processor
-                                      :source-type :fs
+                                      :source-type :s3
                                       :process-fn create-pg-stream-processor
                                       :reducer :json-reducer
                                       :table-opts table-opts
@@ -217,8 +229,15 @@
                                     :process-fn create-kafka-stream-processor
                                     :reducer :json-reducer-s3
                                     :topic test-message-topic
-                                    :xform-provider kafka-pipeline}})
-
+                                    :xform-provider (comp stdout-pipeline-hl7v2 kafka-raw-pipeline)}})
+(def etlp-hl7-kafka-processor {:id 6
+                               :component :etlp.core/processors
+                               :ctx {:name :s3-kafka-hl7-processor
+                                     :source-type :s3
+                                     :process-fn create-kafka-stream-processor
+                                     :reducer :hl7-reducer-s3
+                                     :topic test-message-topic
+                                     :xform-provider kafka-raw-pipeline}})
 (def etlp-fs-kafka-processor {:id 7
                               :component :etlp.core/processors
                               :ctx {:name :fs-kafka-json-processor
@@ -262,7 +281,9 @@
                                        etlp-s3-kafka-processor
                                        etlp-fs-kafka-processor
                                        etlp-kafka-topology-processor
-                                       etlp-stdout-hl7-processor]}))
+                                       etlp-stdout-hl7-processor
+                                       etlp-s3-stdout-hl7-processor
+                                       etlp-hl7-kafka-processor]}))
 
 
 
@@ -305,19 +326,19 @@
 (comment
   (deftest kafka-fs-test
     (testing "etlp/files-to-kafka-processor should execute without error"
-      (let [processor (etlp-app {:processor :fs-kafka-json-processor :params {:key 1 :throttle 10000}})]
+      (let [processor (etlp-app {:processor :fs-kafka-json-processor :params {:key 1 :throttle 100}})]
         (is (= nil (processor {:path "resources/fix/"})))))))
 
-(deftest pg-s3-test
-  (testing "etlp/files-to-pg-processor should execute without error"
-    (let [pg-processor (etlp-app {:processor :s3-stdout-processor :params {:key 1}})]
-      (is (= nil (pg-processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/small-hl7"}))))))
+;; (deftest pg-s3-test
+;;   (testing "etlp/files-to-pg-processor should execute without error"
+;;     (let [pg-processor (etlp-app {:processor :stdout-processor :params {:key 1}})]
+;;       (is (= nil (pg-processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/hl7"}))))))
 
-(comment
-  (deftest kafka-s3-test
-    (testing "etlp/files-to-kafka-processor should execute without error"
-      (let [processor (etlp-app {:processor :s3-kafka-json-processor :params {:key 1 :throttle 10000}})]
-        (is (= nil (processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/json"})))))))
+
+(deftest kafka-s3-test
+  (testing "etlp/files-to-kafka-processor should execute without error"
+    (let [processor (etlp-app {:processor :s3-kafka-hl7-processor :params {:key 1 :throttle 10000}})]
+    (is (= nil (processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/hl7"}))))))
 
 
 ;; (stream-app (etlp-app {:processor :kafka-stream-processor :params {:key 1}})
