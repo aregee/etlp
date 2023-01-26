@@ -195,6 +195,25 @@
           :reducers (ig/ref ::reducers)}})
 
 
+(defn- airbyte-connector
+  "The production config.
+  When the 'dev' alias is active, this config will not be used."
+  [conf]
+  {::spec {}
+   
+   ::check {}
+   
+   ::discover {}
+   
+   ::read {}
+
+   ::reducers (:reducers conf)
+   
+   ::app {:streams-config conf
+          :sinks (ig/ref ::sinks)
+          :reducers (ig/ref ::reducers)}})
+
+
 (defn directory-to-stdout-stream-processor [{:keys [config reducers reducer params source-type] :as proc-def}]
 
   (defmethod ig/init-key ::reducers [_ ctx]

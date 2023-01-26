@@ -76,6 +76,9 @@
 (def pf (fn []
           1))
 
+
+
+
 (defn list-objects-pipeline [{:keys [client bucket prefix output-channel error-channel aws-ch]}]
   (let [list-objects-request {:op :ListObjectsV2
                               :ch output-channel

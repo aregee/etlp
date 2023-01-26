@@ -9,7 +9,7 @@
                                         create-kstream-topology-processor create-pg-stream-processor create-stdout-stream-processor]]
             [etlp.reducers :refer [lines-reducible]]
             [etlp.s3 :refer [s3-invoke]]
-            [etlp.utils :refer [wrap-record]]
+            [etlp.utils :refer [wrap-record wrap-log]]
             [willa.core :as w]))
 
 (def db-config
