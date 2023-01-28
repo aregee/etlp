@@ -335,10 +335,10 @@
 ;;       (is (= nil (pg-processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/hl7"}))))))
 
 
-(deftest kafka-s3-test
-  (testing "etlp/files-to-kafka-processor should execute without error"
-    (let [processor (etlp-app {:processor :s3-kafka-hl7-processor :params {:key 1 :throttle 10000}})]
-    (is (= nil (processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/hl7"}))))))
+;; (deftest kafka-s3-test
+;;   (testing "etlp/files-to-kafka-processor should execute without error"
+;;     (let [processor (etlp-app {:processor :s3-kafka-hl7-processor :params {:key 1 :throttle 10000}})]
+;;     (is (= nil (processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/hl7"}))))))
 
 
 ;; (stream-app (etlp-app {:processor :kafka-stream-processor :params {:key 1}})

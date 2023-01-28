@@ -22,3 +22,4 @@ test/messages/
 .calva
 .clj-kondo/
 .vscode
+scratch*.clj

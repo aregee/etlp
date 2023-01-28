@@ -20,4 +20,4 @@
   :hooks [leiningen.with-env-vars/auto-inject]
   :profiles {:dev {:dependencies []}}
   :env-vars [".env-vars"]
-  :repl-options {:init-ns etlp.core-test})
+  :repl-options {:init-ns etlp.connector-test})
