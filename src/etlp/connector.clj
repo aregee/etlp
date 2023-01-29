@@ -32,10 +32,10 @@
 (defn- process-xform [xform input-channel]
   (try
     (if (instance? ManyToManyChannel input-channel)
-      (let [output-channel (a/chan 1)]
-        (a/pipeline 1 output-channel xform input-channel)
-        output-channel)
-      (input-channel :channel))
+      (let [output-channel (a/chan 1 xform)]
+        (a/pipe input-channel output-channel))
+      (let [output-channel (a/chan)]
+        (a/pipe (input-channel :channel) output-channel)))
     (catch Exception ex (println (str "Eexception Occured" ex)))))
 
 (defn connect [topology]
