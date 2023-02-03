@@ -34,7 +34,7 @@
     (if (instance? ManyToManyChannel input-channel)
       (let [output-channel (a/chan 1 xform)]
         (a/pipe input-channel output-channel))
-      (let [output-channel (a/chan)]
+      (let [output-channel (a/chan 1)]
         (a/pipe (input-channel :channel) output-channel)))
     (catch Exception ex (println (str "Eexception Occured" ex)))))
 

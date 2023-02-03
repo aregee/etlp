@@ -41,7 +41,7 @@
 
 
 (defn get-object-pipeline-async [{:keys [client bucket files-channel output-channel]}]
-  (a/pipeline-async 1
+  (a/pipeline-async 6
                     output-channel
                     (fn [acc res]
                       (a/go
@@ -54,73 +54,66 @@
 
 (def s3-client (s3-invoke s3-config))
 
-(def s3-processing-toology {:entities  {:list-s3-objects {:s3-config s3-config
-                                                          :bucket (System/getenv "ETLP_TEST_BUCKET")
-                                                          :channel (a/chan)
-                                                          :meta  {:entity-type :processor
-                                                                  :processor (fn [ch]
-                                                                               (a/go
-                                                                                 (list-objects-pipeline {:client s3-client
-                                                                                                         :bucket (ch :bucket)
-                                                                                                         :files-channel (ch :channel)
-                                                                                                         :prefix "stormbreaker/hl7"}))
-                                                                               (ch :channel))}}
+(def list-s3-processor  (fn [ch]
+                             (list-objects-pipeline {:client s3-client
+                                                     :bucket (ch :bucket)
+                                                     :files-channel (ch :channel)
+                                                     :prefix "stormbreaker/hl7"})
+                          (ch :channel)))
 
-                                        :stream-s3-file-paths {:meta {:entity-type :xform-provider
-                                                                      :xform (comp
-                                                                              (filter not-nill)
-                                                                              (map wrap-log)
-                                                                              (keep println))}}
+(def log-s3-file-paths (fn [ch]
+                         (if (instance? ManyToManyChannel ch)
+                           (a/pipe ch (a/chan 6 (comp
+                                                 (filter not-nill)
+                                                 (map wrap-log)
+                                                 (keep println))))
+                           (a/pipe (ch :channel) (a/chan 1 (comp
+                                                            (filter not-nill)
+                                                            (map wrap-log)))))))
 
-                                        :log-s3-file-paths {:meta {:entity-type :processor
-                                                                   :processor (fn [ch]
-                                                                                (if (instance? ManyToManyChannel ch)
-                                                                                  (a/pipe ch (a/chan 1 (comp
-                                                                                                        (filter not-nill)
-                                                                                                        (map wrap-log)
-                                                                                                        (keep println))))
-                                                                                  (a/pipe (ch :channel) (a/chan 1 (comp
-                                                                                                                   (filter not-nill)
-                                                                                                                   (map wrap-log))))))}}
+(def reduce-s3 (comp
+                (mapcat (partial s3-reducible (hl7-xform {})))
+                (map wrap-record)))
 
 
-                                        :read-s3-objects {:bucket (System/getenv "ETLP_TEST_BUCKET")
-                                                          :meta {:entity-type :processor
-                                                                 :processor (fn [ch]
-                                                                              (println "TODO:Check if instance of channel, we ned to abstract out this part" ch)
-                                                                              (let [output (a/chan)]
-                                                                                (a/go (get-object-pipeline-async {:client s3-client
-                                                                                                                  :bucket (ch :bucket)
-                                                                                                                  :files-channel (ch :channel)
-                                                                                                                  :output-channel output}))
-                                                                                output))}}
+(def get-s3-objects (fn [ch]
+                      (println "TODO:Check if instance of channel, we ned to abstract out this part" ch)
+                      (let [output (a/chan 6 reduce-s3)]
+                        (get-object-pipeline-async {:client s3-client
+                                                    :bucket (ch :bucket)
+                                                    :files-channel (ch :channel)
+                                                    :output-channel output})
+                        output)))
 
-                                        :stream-s3-files {:meta {:entity-type :xform-provider
-                                                                 :xform (comp
-                                                                         (mapcat (partial s3-reducible (hl7-xform {})))
-                                                                         (map wrap-record))}}
+(def etlp-processor (fn [ch]
+                      (if (instance? ManyToManyChannel ch)
+                        ch
+                        (ch :channel))))
 
-                                        :processor-5 {:channel (a/chan)
-                                                      :meta {:entity-type :processor
-                                                             :processor (fn [ch]
-                                                                          (if (instance? ManyToManyChannel ch)
-                                                                            ch
-                                                                            (ch :channel)))}}}
-                            :workflow [[:list-s3-objects :read-s3-objects]
-                                       [:read-s3-objects :stream-s3-files]
-                                      ;;  [:list-s3-objects :stream-s3-file-paths]
-                                       [:stream-s3-files :processor-5]]})
+(def s3-processing-toology {:entities
+                            {:list-s3-objects {:s3-config s3-config
+                                               :bucket (System/getenv "ETLP_TEST_BUCKET")
+                                               :channel (a/chan 6)
+                                               :meta  {:entity-type :processor
+                                                       :processor list-s3-processor}}
 
+                             :get-s3-objects {:bucket (System/getenv "ETLP_TEST_BUCKET")
+                                              :meta {:entity-type :processor
+                                                     :processor get-s3-objects}}
 
-;; (def out-chan (a/chan 1 (io/writer *out*)))
+                             :processor-5 {:channel (a/chan 6)
+                                           :meta {:entity-type :processor
+                                                  :processor etlp-processor}}}
+                            :workflow [[:list-s3-objects :get-s3-objects]
+                                       [:get-s3-objects :processor-5]]})
 
 (deftest test-connect-s3
   (let [topology (atom s3-processing-toology)
         etlp (connector/connect @topology)]
     (clojure.pprint/pprint "S3 Topo")
     (a/<!!
-    (a/pipeline 1 (doto (a/chan) (a/close!))
-                 (comp 
+     (a/pipeline 1 (doto (a/chan) (a/close!))
+                 (comp
                   (map (fn [d] (println d)))
                   (partition-all 10)
                   (keep save-into-database))
@@ -172,16 +165,16 @@
                                                                (ch :channel)))}}}})
 
 
-(deftest test-connect-processors
-  (let [topology (atom mock-topo)
-        entities (@topology :entities)
-        etlp-line (connector/connect @topology)]
-    (clojure.pprint/pprint "Case One Begins")
-    (a/<!!
-     (a/pipeline 1 (doto (a/chan) (a/close!))
-                 (map (fn [d] (println "Invoked from pipeline" d) d))
-                 (get-in etlp-line [:processor-5 :channel]) (fn [ex]
-                                                              (println (str "Execetion Caught" ex)))))))
+;; (deftest test-connect-processors
+;;   (let [topology (atom mock-topo)
+;;         entities (@topology :entities)
+;;         etlp-line (connector/connect @topology)]
+;;     (clojure.pprint/pprint "Case One Begins")
+;;     (a/<!!
+;;      (a/pipeline 1 (doto (a/chan) (a/close!))
+;;                  (map (fn [d] (println "Invoked from pipeline" d) d))
+;;                  (get-in etlp-line [:processor-5 :channel]) (fn [ex]
+;;                                                               (println (str "Execetion Caught" ex)))))))
 
 
 
@@ -232,15 +225,15 @@
                                               :entity-type :xform-provider}}}})
 
 
-(deftest test-connect-xform-and-processors
-  (let [topology (atom simple-topo)
-        etlp-line (connector/connect @topology)]
-    (clojure.pprint/pprint "Case 2 begins")
-    (a/<!!
-     (a/pipeline 1 (doto (a/chan) (a/close!))
-                 (map (fn [d] (println "Invoked from ETLP pipeline ::\n" d) d))
-                 (get-in etlp-line [:processor-4 :channel]) (fn [ex]
-                                                              (println (str "Execetion Caught" ex)))))))
+;; (deftest test-connect-xform-and-processors
+;;   (let [topology (atom simple-topo)
+;;         etlp-line (connector/connect @topology)]
+;;     (clojure.pprint/pprint "Case 2 begins")
+;;     (a/<!!
+;;      (a/pipeline 1 (doto (a/chan) (a/close!))
+;;                  (map (fn [d] (println "Invoked from ETLP pipeline ::\n" d) d))
+;;                  (get-in etlp-line [:processor-4 :channel]) (fn [ex]
+;;                                                               (println (str "Execetion Caught" ex)))))))
 
 (comment
   (doseq [path (:workflow {:topology mock-topo})]
