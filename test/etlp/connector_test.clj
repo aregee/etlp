@@ -41,29 +41,29 @@
 
 
 (defn get-object-pipeline-async [{:keys [client bucket files-channel output-channel]}]
-  (a/pipeline-async 6
+  (a/pipeline-async 8
                     output-channel
                     (fn [acc res]
                       (a/go
                         (let [content (a/<! (aws/invoke-async
                                              client {:op :GetObject
                                                      :request {:Bucket bucket :Key (acc :Key)}}))]
-                          (a/go (a/>! res content)
-                                (a/close! res)))))
+                          (a/>! res content)
+                          (a/close! res))))
                     files-channel))
 
 (def s3-client (s3-invoke s3-config))
 
 (def list-s3-processor  (fn [ch]
-                             (list-objects-pipeline {:client s3-client
-                                                     :bucket (ch :bucket)
-                                                     :files-channel (ch :channel)
-                                                     :prefix "stormbreaker/hl7"})
+                          (list-objects-pipeline {:client s3-client
+                                                  :bucket (ch :bucket)
+                                                  :files-channel (ch :channel)
+                                                  :prefix "stormbreaker/hl7"})
                           (ch :channel)))
 
 (def log-s3-file-paths (fn [ch]
                          (if (instance? ManyToManyChannel ch)
-                           (a/pipe ch (a/chan 6 (comp
+                           (a/pipe ch (a/chan 1 (comp
                                                  (filter not-nill)
                                                  (map wrap-log)
                                                  (keep println))))
@@ -78,7 +78,7 @@
 
 (def get-s3-objects (fn [ch]
                       (println "TODO:Check if instance of channel, we ned to abstract out this part" ch)
-                      (let [output (a/chan 6 reduce-s3)]
+                      (let [output (a/chan 8)]
                         (get-object-pipeline-async {:client s3-client
                                                     :bucket (ch :bucket)
                                                     :files-channel (ch :channel)
@@ -93,7 +93,7 @@
 (def s3-processing-toology {:entities
                             {:list-s3-objects {:s3-config s3-config
                                                :bucket (System/getenv "ETLP_TEST_BUCKET")
-                                               :channel (a/chan 6)
+                                               :channel (a/chan 8)
                                                :meta  {:entity-type :processor
                                                        :processor list-s3-processor}}
 
@@ -101,7 +101,7 @@
                                               :meta {:entity-type :processor
                                                      :processor get-s3-objects}}
 
-                             :processor-5 {:channel (a/chan 6)
+                             :processor-5 {:channel (a/chan 8)
                                            :meta {:entity-type :processor
                                                   :processor etlp-processor}}}
                             :workflow [[:list-s3-objects :get-s3-objects]
@@ -112,12 +112,14 @@
         etlp (connector/connect @topology)]
     (clojure.pprint/pprint "S3 Topo")
     (a/<!!
-     (a/pipeline 1 (doto (a/chan) (a/close!))
+     (a/pipeline 8 (doto (a/chan 8) (a/close!))
                  (comp
-                  (map (fn [d] (println d)))
+                  reduce-s3
+                  (map (fn [d] (println d) d))
                   (partition-all 10)
                   (keep save-into-database))
                  (get-in etlp [:processor-5 :channel])
+                 true
                  (fn [ex]
                    (println (str "Execetion Caught" ex)))))))
 

@@ -39,18 +39,12 @@
     (a/<!!
      (a/pipeline
       6
-      (a/pipe (a/pipeline 6
-                          (doto (a/chan) (a/close!))
-                          (comp
-                          ;;  (map wrap-log)
-                           (keep (fn [l] (println l) l))
-                           (partition-all 10)
-                           (keep save-into-database))
-                          (a/pipe stdout error-channel)
-                          true
-                          (fn [error]
-                            (a/go (a/>! error-channel (wrap-error {:error (str "Execption caught::" error)}))))) (a/pipe stdout error-channel))
-      xf
+      (doto (a/chan 8)(a/close!))
+      (comp
+       xf
+       (keep (fn [l] (println l) l))
+       (partition-all 10)
+       (keep save-into-database))
       ch
       true
       (fn [error]
