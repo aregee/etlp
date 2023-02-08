@@ -38,7 +38,7 @@
 
     (a/<!!
      (a/pipeline
-      6
+      7
       (doto (a/chan 8)(a/close!))
       (comp
        xf

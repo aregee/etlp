@@ -107,6 +107,26 @@
                             :workflow [[:list-s3-objects :get-s3-objects]
                                        [:get-s3-objects :processor-5]]})
 
+(defn toplogy-builder [{:keys [s3-config bucket processors]}]
+  (let [entities {:list-s3-objects {:s3-config s3-config
+                                    :bucket bucket
+                                    :channel (a/chan 6)
+                                    :meta  {:entity-type :processor
+                                            :processor (processors :list-s3-processor)}}
+
+                  :get-s3-objects {:bucket bucket
+                                   :meta {:entity-type :processor
+                                          :processor (processors :get-s3-objects)}}
+
+                  :processor-5 {:channel (a/chan 6)
+                                :meta {:entity-type :processor
+                                       :processor (processors :etlp-processor)}}}
+        workflow  [[:list-s3-objects :get-s3-objects]
+                   [:get-s3-objects :processor-5]]]
+    {:entities entities
+     :workflow workflow}))
+
+
 (deftest test-connect-s3
   (let [topology (atom s3-processing-toology)
         etlp (connector/connect @topology)]
