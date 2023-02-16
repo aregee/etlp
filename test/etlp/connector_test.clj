@@ -1,8 +1,6 @@
-
-
 (ns etlp.connector-test
   (:require [clojure.test :refer :all]
-            [etlp.connector :as connector]
+            [etlp.connector :as connector :refer (map->EtlpS3Connector)]
             [etlp.core-test :refer [hl7-xform]]
             [clojure.pprint :refer [pprint]]
             [etlp.utils :refer [wrap-log wrap-record]]
@@ -41,7 +39,7 @@
 
 
 (defn get-object-pipeline-async [{:keys [client bucket files-channel output-channel]}]
-  (a/pipeline-async 8
+  (a/pipeline-async 2
                     output-channel
                     (fn [acc res]
                       (a/go
@@ -54,12 +52,12 @@
 
 (def s3-client (s3-invoke s3-config))
 
-(def list-s3-processor  (fn [ch]
-                          (list-objects-pipeline {:client s3-client
-                                                  :bucket (ch :bucket)
-                                                  :files-channel (ch :channel)
-                                                  :prefix "stormbreaker/hl7"})
-                          (ch :channel)))
+(def list-s3-processor  (fn [data]
+                          (list-objects-pipeline {:client (data :s3-client)
+                                                  :bucket (data :bucket)
+                                                  :files-channel (data :channel)
+                                                  :prefix (data :prefix)})
+                          (data :channel)))
 
 (def log-s3-file-paths (fn [ch]
                          (if (instance? ManyToManyChannel ch)
@@ -76,12 +74,12 @@
                 (map wrap-record)))
 
 
-(def get-s3-objects (fn [ch]
-                      (println "TODO:Check if instance of channel, we ned to abstract out this part" ch)
-                      (let [output (a/chan 8)]
-                        (get-object-pipeline-async {:client s3-client
-                                                    :bucket (ch :bucket)
-                                                    :files-channel (ch :channel)
+(def get-s3-objects (fn [data]
+                      (println "TODO:Check if instance of channel, we ned to abstract out this part")
+                      (let [output (a/chan 100)]
+                        (get-object-pipeline-async {:client (data :s3-client)
+                                                    :bucket (data :bucket)
+                                                    :files-channel (data :channel)
                                                     :output-channel output})
                         output)))
 
@@ -91,57 +89,81 @@
                         (ch :channel))))
 
 (def s3-processing-toology {:entities
-                            {:list-s3-objects {:s3-config s3-config
+                            {:list-s3-objects {:s3-client s3-client
                                                :bucket (System/getenv "ETLP_TEST_BUCKET")
-                                               :channel (a/chan 8)
+                                               :channel (a/chan)
+                                               :prefix "stormbreaker/hl7"
                                                :meta  {:entity-type :processor
                                                        :processor list-s3-processor}}
 
-                             :get-s3-objects {:bucket (System/getenv "ETLP_TEST_BUCKET")
+                             :get-s3-objects {:s3-client s3-client
+                                              :bucket (System/getenv "ETLP_TEST_BUCKET")
                                               :meta {:entity-type :processor
                                                      :processor get-s3-objects}}
 
-                             :processor-5 {:channel (a/chan 8)
-                                           :meta {:entity-type :processor
-                                                  :processor etlp-processor}}}
+
+                             :processor-5 { :meta {:entity-type :processor
+                                            :processor etlp-processor}}}
                             :workflow [[:list-s3-objects :get-s3-objects]
                                        [:get-s3-objects :processor-5]]})
 
-(defn toplogy-builder [{:keys [s3-config bucket processors]}]
-  (let [entities {:list-s3-objects {:s3-config s3-config
+
+(defn topology-builder [{:keys [s3-config prefix bucket processors]}]
+  (let [s3-client (s3-invoke s3-config)
+        entities {:list-s3-objects {:s3-client s3-client
                                     :bucket bucket
+                                    :prefix prefix
                                     :channel (a/chan 6)
                                     :meta  {:entity-type :processor
                                             :processor (processors :list-s3-processor)}}
 
-                  :get-s3-objects {:bucket bucket
+                  :get-s3-objects {:s3-client s3-client
+                                   :bucket bucket
                                    :meta {:entity-type :processor
                                           :processor (processors :get-s3-objects)}}
 
-                  :processor-5 {:channel (a/chan 6)
+                  :transform-s3-files {:meta {:entity-type :xform-provider
+                                              :xform reduce-s3}}
+
+                  :processor-5 {:channel (a/chan 100000)
                                 :meta {:entity-type :processor
                                        :processor (processors :etlp-processor)}}}
         workflow  [[:list-s3-objects :get-s3-objects]
-                   [:get-s3-objects :processor-5]]]
+                   [:get-s3-objects :transform-s3-files]
+                   [:transform-s3-files :processor-5]]]
+
     {:entities entities
      :workflow workflow}))
 
-
 (deftest test-connect-s3
-  (let [topology (atom s3-processing-toology)
-        etlp (connector/connect @topology)]
-    (clojure.pprint/pprint "S3 Topo")
+  (let [s3-connector (map->EtlpS3Connector {:s3-config s3-config
+                                             :prefix "stormbreaker/hl7"
+                                             :bucket (System/getenv "ETLP_TEST_BUCKET")
+                                             :processors {:list-s3-processor list-s3-processor
+                                                          :get-s3-objects get-s3-objects
+                                                          :etlp-processor etlp-processor
+                                                          }
+                                            :topology-builder topology-builder})]
     (a/<!!
-     (a/pipeline 8 (doto (a/chan 8) (a/close!))
-                 (comp
-                  reduce-s3
-                  (map (fn [d] (println d) d))
-                  (partition-all 10)
-                  (keep save-into-database))
-                 (get-in etlp [:processor-5 :channel])
-                 true
-                 (fn [ex]
-                   (println (str "Execetion Caught" ex)))))))
+     (.read! s3-connector))))
+
+
+(comment
+  (deftest test-connect-s3
+    (let [topology (atom s3-processing-toology)
+          etlp (connector/connect @topology)]
+      (clojure.pprint/pprint "S3 Topo")
+      (a/<!!
+       (a/pipeline 1 (doto (a/chan)(a/close!))
+                   (comp
+                    ;; reduce-s3
+                    (map (fn [d] (println d) d))
+                    (partition-all 1000)
+                    (keep save-into-database))
+                   (get-in etlp [:processor-5 :channel])
+                   true
+                   (fn [ex]
+                     (println (str "Execetion Caught" ex))))))))
 
 (def mock-topo {:workflow [[:processor-1 :processor-2]
                            [:processor-2 :processor-3]

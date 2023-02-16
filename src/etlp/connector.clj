@@ -1,6 +1,7 @@
 (ns etlp.connector
   (:require [clojure.core.async :as a]
-            [clojure.pprint :refer [pprint]])
+            [clojure.pprint :refer [pprint]]
+            [etlp.async :refer [save-into-database]])
   (:import [clojure.core.async.impl.channels ManyToManyChannel]))
 
 (defn- entity-type [entity]
@@ -32,9 +33,9 @@
 (defn- process-xform [xform input-channel]
   (try
     (if (instance? ManyToManyChannel input-channel)
-      (let [output-channel (a/chan 1 xform)]
+      (let [output-channel (a/chan 100000 xform)]
         (a/pipe input-channel output-channel))
-      (let [output-channel (a/chan 1)]
+      (let [output-channel (a/chan 100000)]
         (a/pipe (input-channel :channel) output-channel)))
     (catch Exception ex (println (str "Eexception Occured" ex)))))
 
@@ -67,11 +68,11 @@
   (spec [this] "Return the spec of the source.")
   (check [this] "Check the validity of the source configuration.")
   (discover [this] "Discover the available schemas of the source.")
-  (read [this] "Read data from the source and return a sequence of records."))
+  (read! [this] "Read data from the source and return a sequence of records."))
 
 
 
-(defrecord EtlpS3Connector [s3-config bucket processors topology-builder]
+(defrecord EtlpS3Connector [s3-config prefix bucket processors topology-builder]
   EtlpConnector
   (spec [this] {:supported-destination-streams []
                 :supported-source-streams [{:stream_name "s3_stream"
@@ -98,15 +99,15 @@
     {:streams [{:stream_name "s3_stream"
                 :schema {:type "object"
                          :properties {:data {:type "string"}}}}]})
-  (read [this]
+  (read! [this]
     (let [topology (topology-builder this)
           etlp (connect topology)
           data-channel (get-in etlp [:processor-5 :channel])]
-      (doall
-       (a/<!!
-        (a/pipeline 6 (doto (a/chan) (a/close!))
+      (a/pipeline 1 (doto (a/chan) (a/close!))
                     (comp
-                     (map (fn [d] (println d))))
+                     (map (fn [d] (println d) d))
+                     (partition-all 100)
+                     (keep save-into-database))
                     data-channel
                     (fn [ex]
-                      (println (str "Execetion Caught" ex)))))))))
+                      (println (str "Execetion Caught" ex)))))))
