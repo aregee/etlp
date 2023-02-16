@@ -39,7 +39,7 @@
 
 
 (defn get-object-pipeline-async [{:keys [client bucket files-channel output-channel]}]
-  (a/pipeline-async 2
+  (a/pipeline-async 6
                     output-channel
                     (fn [acc res]
                       (a/go
@@ -76,7 +76,7 @@
 
 (def get-s3-objects (fn [data]
                       (println "TODO:Check if instance of channel, we ned to abstract out this part")
-                      (let [output (a/chan 100)]
+                      (let [output (a/chan)]
                         (get-object-pipeline-async {:client (data :s3-client)
                                                     :bucket (data :bucket)
                                                     :files-channel (data :channel)
@@ -92,7 +92,7 @@
                             {:list-s3-objects {:s3-client s3-client
                                                :bucket (System/getenv "ETLP_TEST_BUCKET")
                                                :channel (a/chan)
-                                               :prefix "stormbreaker/hl7"
+                                               :prefix "messages"
                                                :meta  {:entity-type :processor
                                                        :processor list-s3-processor}}
 
@@ -100,7 +100,6 @@
                                               :bucket (System/getenv "ETLP_TEST_BUCKET")
                                               :meta {:entity-type :processor
                                                      :processor get-s3-objects}}
-
 
                              :processor-5 { :meta {:entity-type :processor
                                             :processor etlp-processor}}}
@@ -113,7 +112,7 @@
         entities {:list-s3-objects {:s3-client s3-client
                                     :bucket bucket
                                     :prefix prefix
-                                    :channel (a/chan 6)
+                                    :channel (a/chan)
                                     :meta  {:entity-type :processor
                                             :processor (processors :list-s3-processor)}}
 
@@ -122,15 +121,11 @@
                                    :meta {:entity-type :processor
                                           :processor (processors :get-s3-objects)}}
 
-                  :transform-s3-files {:meta {:entity-type :xform-provider
-                                              :xform reduce-s3}}
-
-                  :processor-5 {:channel (a/chan 100000)
+                  :processor-5 {:channel (a/chan)
                                 :meta {:entity-type :processor
                                        :processor (processors :etlp-processor)}}}
         workflow  [[:list-s3-objects :get-s3-objects]
-                   [:get-s3-objects :transform-s3-files]
-                   [:transform-s3-files :processor-5]]]
+                   [:get-s3-objects :processor-5]]]
 
     {:entities entities
      :workflow workflow}))
@@ -143,6 +138,10 @@
                                                           :get-s3-objects get-s3-objects
                                                           :etlp-processor etlp-processor
                                                           }
+                                            :reducers {
+                                                       :s3-reducer reduce-s3
+                                                       }
+                                            :reducer :s3-reducer
                                             :topology-builder topology-builder})]
     (a/<!!
      (.read! s3-connector))))

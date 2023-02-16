@@ -33,10 +33,10 @@
 (defn- process-xform [xform input-channel]
   (try
     (if (instance? ManyToManyChannel input-channel)
-      (let [output-channel (a/chan 100000 xform)]
-        (a/pipe input-channel output-channel))
-      (let [output-channel (a/chan 100000)]
-        (a/pipe (input-channel :channel) output-channel)))
+      (let [output-channel (a/chan 100)]
+        (a/pipeline 16 output-channel xform input-channel)
+        output-channel)
+      input-channel)
     (catch Exception ex (println (str "Eexception Occured" ex)))))
 
 (defn connect [topology]
@@ -72,7 +72,7 @@
 
 
 
-(defrecord EtlpS3Connector [s3-config prefix bucket processors topology-builder]
+(defrecord EtlpS3Connector [s3-config prefix bucket processors topology-builder reducers reducer]
   EtlpConnector
   (spec [this] {:supported-destination-streams []
                 :supported-source-streams [{:stream_name "s3_stream"
@@ -102,11 +102,14 @@
   (read! [this]
     (let [topology (topology-builder this)
           etlp (connect topology)
+          reducers (get-in this [:reducers])
+          xform (get-in this [:reducer])
           data-channel (get-in etlp [:processor-5 :channel])]
-      (a/pipeline 1 (doto (a/chan) (a/close!))
+      (a/pipeline 16 (doto (a/chan) (a/close!))
                     (comp
-                     (map (fn [d] (println d) d))
-                     (partition-all 100)
+                     (reducers xform)
+;                     (map (fn [d] (println d) d))
+                     (partition-all 10000)
                      (keep save-into-database))
                     data-channel
                     (fn [ex]
