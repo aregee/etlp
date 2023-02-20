@@ -3,13 +3,12 @@
             [etlp.core-test :refer [hl7-xform]]
             [clojure.pprint :refer [pprint]]
             [etlp.utils :refer [wrap-log wrap-record]]
-            [etlp.s3 :refer [s3-invoke s3-reducible]]
+            [etlp.s3 :refer [process-s3-airbyte!]]
             [etlp.async :refer [save-into-database]]
             [cognitect.aws.client.api :as aws]
             [clojure.core.async :as a]
             [clojure.java.io :as io])
   (:import [clojure.core.async.impl.channels ManyToManyChannel]))
-
 
 (def not-nill (comp (partial not) nil?))
 
@@ -23,6 +22,20 @@
                               :secret-access-key (System/getenv "SECRET_ACCESS_KEY_ID")}})
 
 
+
+(def airbyte {:s3-config s3-config
+              :bucket (System/getenv "ETLP_TEST_BUCKET")
+              :prefix "stormbreaker/hl7"
+              :reducers {:hl7-reducer
+                         (comp
+                          (hl7-xform {})
+                          (map (fn [segments]
+                                 (clojure.string/join "\r" segments))))}
+              :reducer :hl7-reducer})
+
+
+(deftest test-etlp-connect
+  (process-s3-airbyte! airbyte))
 
 (comment
   (deftest test-connect-s3
@@ -48,19 +61,19 @@
                 :entities {:processor-1 {:channel (a/chan 1)
                                          :meta    {:entity-type :processor
                                                    :processor   (fn [ch]
-                                                                (if (instance? ManyToManyChannel ch)
-                                                                  (a/onto-chan ch test-data)
-                                                                  (a/to-chan test-data)))}}
+                                                                 (if (instance? ManyToManyChannel ch)
+                                                                   (a/onto-chan ch test-data)
+                                                                   (a/to-chan test-data)))}}
                            :processor-2 {:channel (a/chan 1)
                                          :meta    {:entity-type :processor
                                                    :processor   (fn [ch]
-                                                                (a/pipe (ch :channel)
-                                                                        (a/chan 1 (comp
-                                                                                   (mapcat (fn [l] l))
-                                                                                   (filter not-nill)
-                                                                                   (map (fn [lst] (reduce + lst)))
-                                                                                   (map #(* 2 %))
-                                                                                   (map #(* 3 %))))))}}
+                                                                 (a/pipe (ch :channel)
+                                                                         (a/chan 1 (comp
+                                                                                    (mapcat (fn [l] l))
+                                                                                    (filter not-nill)
+                                                                                    (map (fn [lst] (reduce + lst)))
+                                                                                    (map #(* 2 %))
+                                                                                    (map #(* 3 %))))))}}
                            :processor-3 {:channel (a/chan 1)
                                          :meta    {:processor   (fn [ch] (a/pipe (ch :channel)
                                                                                (a/chan 1 (comp
@@ -72,17 +85,17 @@
                            :processor-4 {:channel (a/chan 1)
                                          :meta    {:entity-type :processor
                                                    :processor   (fn [ch]
-                                                                (a/pipe (ch :channel)
-                                                                        (a/chan 1 (comp
-                                                                                   (filter not-nill)
-                                                                                   (filter number?)
-                                                                                   (map #(* 3 %))))))}}
+                                                                 (a/pipe (ch :channel)
+                                                                         (a/chan 1 (comp
+                                                                                    (filter not-nill)
+                                                                                    (filter number?)
+                                                                                    (map #(* 3 %))))))}}
                            :processor-5 {:channel (a/chan 1)
                                          :meta    {:entity-type :processor
                                                    :processor   (fn [ch]
-                                                                (if (instance? ManyToManyChannel ch)
-                                                                  ch
-                                                                  (ch :channel)))}}}})
+                                                                 (if (instance? ManyToManyChannel ch)
+                                                                   ch
+                                                                   (ch :channel)))}}}})
 
 
 ;; (deftest test-connect-processors
@@ -106,42 +119,42 @@
                              [:xform-3 :processor-4]]
                   :entities {:processor-1 {:meta {:entity-type :processor
                                                   :processor   (fn [ch]
-                                                               (if (instance? ManyToManyChannel ch)
-                                                                 (a/onto-chan ch test-data)
-                                                                 (a/to-chan test-data)))}}
+                                                                (if (instance? ManyToManyChannel ch)
+                                                                  (a/onto-chan ch test-data)
+                                                                  (a/to-chan test-data)))}}
                              :processor-2 {:meta {:entity-type :processor
                                                   :processor   (fn [ch]
-                                                               (if (instance? ManyToManyChannel ch)
-                                                                 ch
-                                                                 (ch :channel)))}}
+                                                                (if (instance? ManyToManyChannel ch)
+                                                                  ch
+                                                                  (ch :channel)))}}
 
                              :processor-3 {:meta {:entity-type :processor
                                                   :processor   (fn [ch]
-                                                               (if (instance? ManyToManyChannel ch)
-                                                                 ch
-                                                                 (ch :channel)))}}
+                                                                (if (instance? ManyToManyChannel ch)
+                                                                  ch
+                                                                  (ch :channel)))}}
                              :processor-4 {:meta {:entity-type :processor
                                                   :processor   (fn [ch]
-                                                               (if (instance? ManyToManyChannel ch)
-                                                                 ch
-                                                                 (ch :channel)))}}
+                                                                (if (instance? ManyToManyChannel ch)
+                                                                  ch
+                                                                  (ch :channel)))}}
 
                              :xform-1 {:meta {:entity-type :xform-provider
                                               :xform       (comp
-                                                      (mapcat (fn [l] l))
-                                                      (filter not-nill)
-                                                      (map (fn [lst] (reduce + lst)))
-                                                      (map #(* 2 %))
-                                                      (map #(* 3 %)))}}
+                                                            (mapcat (fn [l] l))
+                                                            (filter not-nill)
+                                                            (map (fn [lst] (reduce + lst)))
+                                                            (map #(* 2 %))
+                                                            (map #(* 3 %)))}}
                              :xform-2 {:meta {:xform       (comp
-                                                      (filter not-nill)
-                                                      (filter number?)
-                                                      (map #(* 2 %)))
+                                                            (filter not-nill)
+                                                            (filter number?)
+                                                            (map #(* 2 %)))
                                               :entity-type :xform-provider}}
                              :xform-3 {:meta {:xform       (comp
-                                                      (filter not-nill)
-                                                      (filter number?)
-                                                      (map #(* 3 %)))
+                                                            (filter not-nill)
+                                                            (filter number?)
+                                                            (map #(* 3 %)))
                                               :entity-type :xform-provider}}}})
 
 
