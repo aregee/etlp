@@ -49,6 +49,21 @@
            (let [h (peek @qv)]
              (vswap! qv pop)
              (rf acc h))))))))
+(comment
+
+  (map->EtlpS3Connector {:s3-config        s3-config
+                         :prefix           "stormbreaker/hl7"
+                         :bucket           (System/getenv "ETLP_TEST_BUCKET")
+                         :processors       {:list-s3-processor list-s3-processor
+                                            :get-s3-objects    get-s3-objects
+                                            :etlp-processor    etlp-processor
+                                            }
+                         :reducers         {
+                                            :s3-reducer reduce-s3
+                                            }
+                         :reducer          :s3-reducer
+                         :topology-builder topology-builder}))
+
 
 (defn- s3-pg-stream [{:keys [s3-config opts params table-opts xform-provider reducers sinks reducer]}]
   (let [bucket-reducer (:s3-bucket-reducer reducers)

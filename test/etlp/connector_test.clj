@@ -27,8 +27,8 @@
 (defn list-objects-pipeline [{:keys [client bucket prefix files-channel]}]
   (let [list-objects-request {:op :ListObjectsV2 :request {:Bucket bucket :Prefix prefix}}]
     (a/go (loop [marker nil]
-            (let [response (a/<! (aws/invoke-async client list-objects-request))
-                  contents (:Contents response)
+            (let [response   (a/<! (aws/invoke-async client list-objects-request))
+                  contents   (:Contents response)
                   new-marker (:NextMarker response)]
               (doseq [file contents]
                 (a/>! files-channel file))
@@ -39,12 +39,12 @@
 
 
 (defn get-object-pipeline-async [{:keys [client bucket files-channel output-channel]}]
-  (a/pipeline-async 6
+  (a/pipeline-async 8
                     output-channel
                     (fn [acc res]
                       (a/go
                         (let [content (a/<! (aws/invoke-async
-                                             client {:op :GetObject
+                                             client {:op      :GetObject
                                                      :request {:Bucket bucket :Key (acc :Key)}}))]
                           (a/>! res content)
                           (a/close! res))))
@@ -53,10 +53,10 @@
 (def s3-client (s3-invoke s3-config))
 
 (def list-s3-processor  (fn [data]
-                          (list-objects-pipeline {:client (data :s3-client)
-                                                  :bucket (data :bucket)
+                          (list-objects-pipeline {:client        (data :s3-client)
+                                                  :bucket        (data :bucket)
                                                   :files-channel (data :channel)
-                                                  :prefix (data :prefix)})
+                                                  :prefix        (data :prefix)})
                           (data :channel)))
 
 (def log-s3-file-paths (fn [ch]
@@ -77,9 +77,9 @@
 (def get-s3-objects (fn [data]
                       (println "TODO:Check if instance of channel, we ned to abstract out this part")
                       (let [output (a/chan)]
-                        (get-object-pipeline-async {:client (data :s3-client)
-                                                    :bucket (data :bucket)
-                                                    :files-channel (data :channel)
+                        (get-object-pipeline-async {:client         (data :s3-client)
+                                                    :bucket         (data :bucket)
+                                                    :files-channel  (data :channel)
                                                     :output-channel output})
                         output)))
 
@@ -109,39 +109,39 @@
 
 (defn topology-builder [{:keys [s3-config prefix bucket processors]}]
   (let [s3-client (s3-invoke s3-config)
-        entities {:list-s3-objects {:s3-client s3-client
-                                    :bucket bucket
-                                    :prefix prefix
-                                    :channel (a/chan)
-                                    :meta  {:entity-type :processor
-                                            :processor (processors :list-s3-processor)}}
+        entities  {:list-s3-objects {:s3-client s3-client
+                                     :bucket    bucket
+                                     :prefix    prefix
+                                     :channel   (a/chan)
+                                     :meta      {:entity-type :processor
+                                                 :processor   (processors :list-s3-processor)}}
 
-                  :get-s3-objects {:s3-client s3-client
-                                   :bucket bucket
-                                   :meta {:entity-type :processor
-                                          :processor (processors :get-s3-objects)}}
+                   :get-s3-objects {:s3-client s3-client
+                                    :bucket    bucket
+                                    :meta      {:entity-type :processor
+                                                :processor   (processors :get-s3-objects)}}
 
-                  :processor-5 {:channel (a/chan)
-                                :meta {:entity-type :processor
-                                       :processor (processors :etlp-processor)}}}
-        workflow  [[:list-s3-objects :get-s3-objects]
-                   [:get-s3-objects :processor-5]]]
+                   :etlp-output {:channel (a/chan)
+                                 :meta    {:entity-type :processor
+                                           :processor   (processors :etlp-processor)}}}
+        workflow [[:list-s3-objects :get-s3-objects]
+                   [:get-s3-objects :etlp-output]]]
 
     {:entities entities
      :workflow workflow}))
 
 (deftest test-connect-s3
-  (let [s3-connector (map->EtlpS3Connector {:s3-config s3-config
-                                             :prefix "stormbreaker/hl7"
-                                             :bucket (System/getenv "ETLP_TEST_BUCKET")
-                                             :processors {:list-s3-processor list-s3-processor
-                                                          :get-s3-objects get-s3-objects
-                                                          :etlp-processor etlp-processor
-                                                          }
-                                            :reducers {
-                                                       :s3-reducer reduce-s3
-                                                       }
-                                            :reducer :s3-reducer
+  (let [s3-connector (map->EtlpS3Connector {:s3-config        s3-config
+                                            :prefix           "stormbreaker/hl7"
+                                            :bucket           (System/getenv "ETLP_TEST_BUCKET")
+                                            :processors       {:list-s3-processor list-s3-processor
+                                                               :get-s3-objects    get-s3-objects
+                                                               :etlp-processor    etlp-processor
+                                                               }
+                                            :reducers         {
+                                                               :s3-reducer reduce-s3
+                                                               }
+                                            :reducer          :s3-reducer
                                             :topology-builder topology-builder})]
     (a/<!!
      (.read! s3-connector))))
@@ -169,43 +169,43 @@
                            [:processor-3 :processor-4]
                            [:processor-4 :processor-5]]
                 :entities {:processor-1 {:channel (a/chan 1)
-                                         :meta {:entity-type :processor
-                                                :processor (fn [ch]
-                                                             (if (instance? ManyToManyChannel ch)
-                                                               (a/onto-chan ch test-data)
-                                                               (a/to-chan test-data)))}}
+                                         :meta    {:entity-type :processor
+                                                   :processor   (fn [ch]
+                                                                (if (instance? ManyToManyChannel ch)
+                                                                  (a/onto-chan ch test-data)
+                                                                  (a/to-chan test-data)))}}
                            :processor-2 {:channel (a/chan 1)
-                                         :meta {:entity-type :processor
-                                                :processor (fn [ch]
-                                                             (a/pipe (ch :channel)
-                                                                     (a/chan 1 (comp
-                                                                                (mapcat (fn [l] l))
-                                                                                (filter not-nill)
-                                                                                (map (fn [lst] (reduce + lst)))
-                                                                                (map #(* 2 %))
-                                                                                (map #(* 3 %))))))}}
+                                         :meta    {:entity-type :processor
+                                                   :processor   (fn [ch]
+                                                                (a/pipe (ch :channel)
+                                                                        (a/chan 1 (comp
+                                                                                   (mapcat (fn [l] l))
+                                                                                   (filter not-nill)
+                                                                                   (map (fn [lst] (reduce + lst)))
+                                                                                   (map #(* 2 %))
+                                                                                   (map #(* 3 %))))))}}
                            :processor-3 {:channel (a/chan 1)
-                                         :meta {:processor (fn [ch] (a/pipe (ch :channel)
-                                                                            (a/chan 1 (comp
-                                                                                       (filter not-nill)
-                                                                                       (filter number?)
-                                                                                       (map #(* 2 %))))))
-                                                :entity-type :processor}}
+                                         :meta    {:processor   (fn [ch] (a/pipe (ch :channel)
+                                                                               (a/chan 1 (comp
+                                                                                          (filter not-nill)
+                                                                                          (filter number?)
+                                                                                          (map #(* 2 %))))))
+                                                   :entity-type :processor}}
 
                            :processor-4 {:channel (a/chan 1)
-                                         :meta {:entity-type :processor
-                                                :processor (fn [ch]
-                                                             (a/pipe (ch :channel)
-                                                                     (a/chan 1 (comp
-                                                                                (filter not-nill)
-                                                                                (filter number?)
-                                                                                (map #(* 3 %))))))}}
+                                         :meta    {:entity-type :processor
+                                                   :processor   (fn [ch]
+                                                                (a/pipe (ch :channel)
+                                                                        (a/chan 1 (comp
+                                                                                   (filter not-nill)
+                                                                                   (filter number?)
+                                                                                   (map #(* 3 %))))))}}
                            :processor-5 {:channel (a/chan 1)
-                                         :meta {:entity-type :processor
-                                                :processor (fn [ch]
-                                                             (if (instance? ManyToManyChannel ch)
-                                                               ch
-                                                               (ch :channel)))}}}})
+                                         :meta    {:entity-type :processor
+                                                   :processor   (fn [ch]
+                                                                (if (instance? ManyToManyChannel ch)
+                                                                  ch
+                                                                  (ch :channel)))}}}})
 
 
 ;; (deftest test-connect-processors
@@ -228,40 +228,40 @@
                              [:processor-3 :xform-3]
                              [:xform-3 :processor-4]]
                   :entities {:processor-1 {:meta {:entity-type :processor
-                                                  :processor (fn [ch]
+                                                  :processor   (fn [ch]
                                                                (if (instance? ManyToManyChannel ch)
                                                                  (a/onto-chan ch test-data)
                                                                  (a/to-chan test-data)))}}
                              :processor-2 {:meta {:entity-type :processor
-                                                  :processor (fn [ch]
+                                                  :processor   (fn [ch]
                                                                (if (instance? ManyToManyChannel ch)
                                                                  ch
                                                                  (ch :channel)))}}
 
                              :processor-3 {:meta {:entity-type :processor
-                                                  :processor (fn [ch]
+                                                  :processor   (fn [ch]
                                                                (if (instance? ManyToManyChannel ch)
                                                                  ch
                                                                  (ch :channel)))}}
                              :processor-4 {:meta {:entity-type :processor
-                                                  :processor (fn [ch]
+                                                  :processor   (fn [ch]
                                                                (if (instance? ManyToManyChannel ch)
                                                                  ch
                                                                  (ch :channel)))}}
 
                              :xform-1 {:meta {:entity-type :xform-provider
-                                              :xform (comp
+                                              :xform       (comp
                                                       (mapcat (fn [l] l))
                                                       (filter not-nill)
                                                       (map (fn [lst] (reduce + lst)))
                                                       (map #(* 2 %))
                                                       (map #(* 3 %)))}}
-                             :xform-2 {:meta {:xform (comp
+                             :xform-2 {:meta {:xform       (comp
                                                       (filter not-nill)
                                                       (filter number?)
                                                       (map #(* 2 %)))
                                               :entity-type :xform-provider}}
-                             :xform-3 {:meta {:xform (comp
+                             :xform-3 {:meta {:xform       (comp
                                                       (filter not-nill)
                                                       (filter number?)
                                                       (map #(* 3 %)))

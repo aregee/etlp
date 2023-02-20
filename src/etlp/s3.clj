@@ -5,12 +5,15 @@
             [cognitect.aws.client.api :as aws]
             [cognitect.aws.credentials :as credentials]
             [clojure.pprint :refer [pprint]]
+            [etlp.connector :refer [connect]]
+            [etlp.airbyte :refer [EtlpAirbyteSource]]
             [etlp.async :refer [process-parallel]] ;; [etlp.core-test :refer [hl7-xform]]
             [etlp.reducers :refer [lines-reducible]]
             [etlp.utils :refer [wrap-error wrap-log wrap-record]])
   (:import [java.io BufferedReader InputStreamReader]
            [clojure.core.async.impl.channels ManyToManyChannel])
   (:gen-class))
+
 
 
 (defn s3-reducible [xf blob]
@@ -77,84 +80,36 @@
           1))
 
 
+(defn list-objects-pipeline [{:keys [client bucket prefix files-channel]}]
+  (let [list-objects-request {:op :ListObjectsV2 :request {:Bucket bucket :Prefix prefix}}]
+    (a/go (loop [marker nil]
+            (let [response   (a/<! (aws/invoke-async client list-objects-request))
+                  contents   (:Contents response)
+                  new-marker (:NextMarker response)]
+              (doseq [file contents]
+                (a/>! files-channel file))
+              (if new-marker
+                (recur new-marker)
+                (a/close! files-channel))))
+          files-channel)))
 
 
-(defn list-objects-pipeline [{:keys [client bucket prefix output-channel error-channel aws-ch]}]
-  (let [list-objects-request {:op :ListObjectsV2
-                              :ch output-channel
-                              :request {:Bucket bucket :Prefix prefix}}]
-
-    (async/pipeline-async 1 output-channel
-                          (fn [acc result]
-                            (let [contents (acc :Contents) pages (acc :KeyCount)]
-                              (go
-                                (doseq [entry contents]
-                                  (>! result entry))
-                                (async/close! result))))
-                          (aws/invoke-async client list-objects-request))))
-
-(defn get-object-pipeline [{:keys [client bucket files-channel output-channel file-channel]}]
-  (async/pipeline-async 6
-                        file-channel
-                        (fn [acc res]
-                          (let [content (aws/invoke
-                                         client {:op :GetObject
-                                                 :request {:Bucket bucket :Key (acc :Key)}})]
-                            (go (>! res content)
-                                (async/close! res))))
-                        files-channel))
-
-
-(defn stream-files-from-s3-bucket [{:keys [client bucket prefix xform-provider params]}]
-  (let [error-channel (chan)
-        base-read (chan)
-        files-channel (chan)
-        input-stream (chan)
-        output-channel (chan)
-        stdout-channel (chan)
-        transducer (xform-provider {:s3-client client :s3-config {} :bucket bucket})]
+(defn get-object-pipeline-async [{:keys [client bucket files-channel output-channel]}]
+  (a/pipeline-async 8
+                    output-channel
+                    (fn [acc res]
+                      (a/go
+                        (let [content (a/<! (aws/invoke-async
+                                             client {:op      :GetObject
+                                                     :request {:Bucket bucket :Key (acc :Key)}}))]
+                          (a/>! res content)
+                          (a/close! res))))
+                    files-channel))
 
 
 
 
-
-
-    (async/<!! (pipeline 
-                1
-                (doto (chan) (async/close!))
-                (comp
-                 (map (fn [l] (println l) l)))
-                (pipe
-                 (pipeline
-                  6
-                  stdout-channel
-                  (comp transducer (map wrap-record))
-                  (pipe
-                   (pipe (list-objects-pipeline
-                          {:client client
-                           :bucket bucket
-                           :prefix prefix
-                           :aws-ch base-read
-                           :output-channel files-channel
-                           :error-channel error-channel})
-                         (get-object-pipeline {:client client
-                                               :bucket bucket
-                                               :xform transducer
-                                               :files-channel files-channel
-                                               :file-channel input-stream}))
-                   (pipe input-stream output-channel))
-                  false
-                  (fn [error-stream]
-                    (go (>! error-channel (wrap-error {:error (str ">>Exception:." error-stream)})))))
-                 (pipe error-channel
-                       (pipe (pipeline
-                              1
-                              stdout-channel
-                              (map wrap-log)
-                              files-channel) stdout-channel)))
-                false
-                (fn [error-stream]
-                  (go (>! error-channel (wrap-error {:error (.getMessage error-stream)}))))))))
+(defn stream-files-from-s3-bucket [{:keys [client bucket prefix xform-provider params]}])
 
 (def bucket-stdout-reducer
   (fn [{:keys [pipeline s3-client s3-config]}]
@@ -166,40 +121,105 @@
                                     :xform-provider (fn [opts] pipeline)}))))
 
 
+(def list-s3-processor  (fn [data]
+                          (list-objects-pipeline {:client        (data :s3-client)
+                                                  :bucket        (data :bucket)
+                                                  :files-channel (data :channel)
+                                                  :prefix        (data :prefix)})
+                          (data :channel)))
 
-(comment
+(def get-s3-objects (fn [data]
+                      (println "TODO:Check if instance of channel, we ned to abstract out this part")
+                      (let [output (a/chan)]
+                        (get-object-pipeline-async {:client         (data :s3-client)
+                                                    :bucket         (data :bucket)
+                                                    :files-channel  (data :channel)
+                                                    :output-channel output})
+                        output)))
+
+(def etlp-processor (fn [ch]
+                      (if (instance? ManyToManyChannel ch)
+                        ch
+                        (ch :channel))))
+
+
+(defn s3-process-topology [{:keys [s3-config prefix bucket processors reducers reducer]}]
+  (let [s3-client (s3-invoke s3-config)
+        entities  {:list-s3-objects {:s3-client s3-client
+                                     :bucket    bucket
+                                     :prefix    prefix
+                                     :channel   (a/chan)
+                                     :meta      {:entity-type :processor
+                                                 :processor   (processors :list-s3-processor)}}
+
+                   :get-s3-objects {:s3-client s3-client
+                                    :bucket    bucket
+                                    :reducer   (reducers reducer)
+                                    :meta      {:entity-type :processor
+                                                :processor   (processors :get-s3-objects)}}
+
+                   :etlp-output {:channel (a/chan)
+                                 :meta    {:entity-type :processor
+                                           :processor   (processors :etlp-processor)}}}
+        workflow [[:list-s3-objects :get-s3-objects]
+                   [:get-s3-objects :etlp-output]]]
+
+    {:entities entities
+     :workflow workflow}))
+
+(defrecord EtlpAirbyteS3Source [s3-config prefix bucket processors topology-builder reducers reducer]
+  EtlpAirbyteSource
+  (spec [this] {:supported-destination-streams []
+                :supported-source-streams      [{:stream_name "s3_stream"
+                                                 :schema      {:type       "object"
+                                                               :properties {:s3-config  {:type        "object"
+                                                                                         :description "S3 connection configuration."}
+                                                                            :bucket     {:type        "string"
+                                                                                         :description "The name of the S3 bucket."}
+                                                                            :processors {:type        "object"
+                                                                                         :description "Processors to be used to extract and transform data from the S3 bucket."}}}}]})
+
+  (check [this]
+    (let [errors (conj [] (when (nil? (:s3-config this))
+                            "s3-config is missing")
+                       (when (nil? (:bucket this))
+                         "bucket is missing")
+                       (when (nil? (:processors this))
+                         "processors is missing"))]
+      {:status  (if (empty? errors) :valid :invalid)
+       :message (if (empty? errors) "Source configuration is valid." (str "Source configuration is invalid. Errors: " (clojure.string/join ", " errors)))}))
+
+  (discover [this]
+            ;; TODO use config and topology to discover schema from mappings
+    {:streams [{:stream_name "s3_stream"
+                :schema      {:type       "object"
+                              :properties {:data {:type "string"}}}}]})
+  (read! [this]
+    (let [topology     (topology-builder this)
+          etlp         (connect topology)
+          reducers     (get-in this [:reducers])
+          xform        (get-in this [:reducer])
+          data-channel (get-in etlp [:etlp-output :channel]) ]
+      (a/pipeline (.availableProcessors (Runtime/getRuntime)) (doto (a/chan) (a/close!))
+                    (comp
+                     (mapcat (partial s3-reducible (reducers xform)))
+                     (map wrap-record))
+                    data-channel
+                    (fn [ex]
+                      (println (str "Execetion Caught" ex)))))))
 
 
 
-
-  (defn list-objects-async [client req]
-    (let [api client
-          request req]
-      (async/go-loop [result (aws/invoke-async api request) contents (result :Contents) next-marker (:NextContinuationToken result)]
-        (if next-marker
-          (recur (aws/invoke-async api (assoc request :marker next-marker)) (result :Contents) (:NextContinuationToken result))
-          (do (async/to-chan contents) (impl/close! contents))))))
-
-  (defn process-with-transducers [xf files]
-    (transduce
-     xf
-     (constantly nil)
-     nil
-     files))
-
-  ;; (def s3-file-reducer (fn [client filepath]
-  ;;                        (eduction
-                          ;; (s3-read-lines client {} "test-dev-env" filepath))))
-
-  ;; (defn s3-directory-processor [client s3-list-request]
-  ;;   (let [s3-reducer (partial s3-file-reducer s3-invoke)]
-  ;;     (process-parallel (comp
-  ;;                           ;; (mapcat (fn [l] (l :Contents)))
-  ;;                        (keep (fn [l] (l :Key)))
-  ;;                        (mapcat s3-reducer)
-  ;;                        (keep (fn [l] (info l) l)))
-  ;;                       (aws/invoke-async client {:op :ListObjectsV2 :request s3-list-request}))))
-
-  (defn logger [log]
-    (log :Contents)))
-
+(def process-s3-airbyte! (fn [{:keys [s3-config bucket prefix reducers reducer] :as opts}]
+                     (let [s3-connector (map->EtlpS3Connector {:s3-config        s3-config
+                                                               :prefix           prefix
+                                                               :bucket           bucket
+                                                               :processors       {:list-s3-processor list-s3-processor
+                                                                                  :get-s3-objects    get-s3-objects
+                                                                                  :etlp-processor    etlp-processor
+                                                                                  }
+                                                               :reducers         reducers
+                                                               :reducer          reducer
+                                                               :topology-builder s3-process-topology})]
+    (a/<!!
+     (.read! s3-connector)))))
