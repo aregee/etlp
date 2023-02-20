@@ -1,5 +1,5 @@
 (ns etlp.s3
-  (:require [clojure.core.async :as async :refer [>! chan go pipe pipeline]]
+  (:require [clojure.core.async :as a :refer [>! chan go pipe pipeline]]
             [clojure.core.async.impl.protocols :as impl]
             [clojure.tools.logging.readable :refer [debug info warn]]
             [cognitect.aws.client.api :as aws]
@@ -211,7 +211,7 @@
 
 
 (def process-s3-airbyte! (fn [{:keys [s3-config bucket prefix reducers reducer] :as opts}]
-                     (let [s3-connector (map->EtlpS3Connector {:s3-config        s3-config
+                     (let [s3-connector (map->EtlpAirbyteS3Source {:s3-config        s3-config
                                                                :prefix           prefix
                                                                :bucket           bucket
                                                                :processors       {:list-s3-processor list-s3-processor
