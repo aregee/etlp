@@ -3,7 +3,8 @@
             [etlp.core-test :refer [hl7-xform]]
             [clojure.pprint :refer [pprint]]
             [etlp.utils :refer [wrap-log wrap-record]]
-            [etlp.s3 :refer [process-s3-airbyte!]]
+            [etlp.s3 :refer [create-s3-source!]]
+            [etlp.connector :refer [create-stdout-destination! create-connection etlp-source etlp-destination]]
             [etlp.async :refer [save-into-database]]
             [cognitect.aws.client.api :as aws]
             [clojure.core.async :as a]
@@ -23,36 +24,22 @@
 
 
 
-(def airbyte {:s3-config s3-config
-              :bucket (System/getenv "ETLP_TEST_BUCKET")
-              :prefix "stormbreaker/hl7"
-              :reducers {:hl7-reducer
-                         (comp
-                          (hl7-xform {})
-                          (map (fn [segments]
-                                 (clojure.string/join "\r" segments))))}
-              :reducer :hl7-reducer})
+(def etlp-s3-source {:s3-config s3-config
+                     :bucket (System/getenv "ETLP_TEST_BUCKET")
+                     :prefix "stormbreaker/hl7"
+                     :reducers {:hl7-reducer
+                                (comp
+                                 (hl7-xform {})
+                                 (map (fn [segments]
+                                        (clojure.string/join "\r" segments))))}
+                     :reducer :hl7-reducer})
 
 
-(deftest test-etlp-connect
-  (process-s3-airbyte! airbyte))
+(deftest test-etlp-connection
+  (is (= nil(create-connection {:source      (create-s3-source! etlp-s3-source)
+                                :xform       (comp (map wrap-record))
+                                :destination (create-stdout-destination! {})}))))
 
-(comment
-  (deftest test-connect-s3
-    (let [topology (atom s3-processing-toology)
-          etlp (connector/connect @topology)]
-      (clojure.pprint/pprint "S3 Topo")
-      (a/<!!
-       (a/pipeline 1 (doto (a/chan)(a/close!))
-                   (comp
-                    ;; reduce-s3
-                    (map (fn [d] (println d) d))
-                    (partition-all 1000)
-                    (keep save-into-database))
-                   (get-in etlp [:processor-5 :channel])
-                   true
-                   (fn [ex]
-                     (println (str "Execetion Caught" ex))))))))
 
 (def mock-topo {:workflow [[:processor-1 :processor-2]
                            [:processor-2 :processor-3]

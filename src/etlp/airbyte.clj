@@ -1,7 +1,5 @@
-(ns etlp.airbyte
-  (:require [clojure.core.async :as a :refer [<!!]]
-            [etlp.connector :as connector]))
-
+(ns etlp.airbyte)
+ 
 
 (defprotocol EtlpAirbyteSource
   (spec [this] "Return the spec of the source.")
@@ -9,4 +7,28 @@
   (discover [this] "Discover the available schemas of the source.")
   (read! [this] "Read data from the source and return a sequence of records."))
 
+(defprotocol EtlpAirbyteDestination
+  (spec [this] "Return the spec of the source.")
+  (check [this] "Check the validity of the source configuration.")
+  (write! [this] "Read data from the source and return a sequence of records."))
 
+
+(comment
+  (defrecord ConnectoSpecification)
+  (defrecord AirbyteConnectionStatus)
+
+ (defrecord
+     AirbyteCatalog
+     [])
+
+ (defrecord
+     ConfiguredAirbyteCatalog
+     [])
+
+ (defrecord
+     AirbyteRecordMessage
+     [])
+
+ (defrecord
+      AirbyteStateMessage
+      []))

@@ -203,30 +203,36 @@
   (read! [this]
     (let [topology     (topology-builder this)
           etlp         (connect topology)
-          records          (atom 0)
+          records      (atom 0)
           reducers     (get-in this [:reducers])
           xform        (get-in this [:reducer])
           data-channel (get-in etlp [:etlp-output :channel])]
-      (a/pipeline (.availableProcessors (Runtime/getRuntime)) (doto (a/chan) (a/close!))
-                    (comp
-                     (map wrap-record)
-                     (map (fn [d] (println d) d))
-                     (partition-all 100)
-                     (keep (partial save-into-database records)))
-                    data-channel
-                    (fn [ex]
-                      (println (str "Execetion Caught" ex)))))))
+     data-channel)))
 
-(def process-s3-airbyte! (fn [{:keys [s3-config bucket prefix reducers reducer] :as opts}]
-                          (let [s3-connector (map->EtlpAirbyteS3Source {:s3-config        s3-config
-                                                                        :prefix           prefix
-                                                                        :bucket           bucket
-                                                                        :processors       {:list-s3-processor list-s3-processor
-                                                                                           :get-s3-objects    get-s3-objects
-                                                                                           :etlp-processor    etlp-processor}
 
-                                                                        :reducers         reducers
-                                                                        :reducer          reducer
-                                                                        :topology-builder s3-process-topology})]
-                           (a/<!! (.read! s3-connector))
-                           s3-connector)))
+(def create-s3-source! (fn [{:keys [s3-config bucket prefix reducers reducer] :as opts}]
+                        (let [s3-connector (map->EtlpAirbyteS3Source {:s3-config        s3-config
+                                                                      :prefix           prefix
+                                                                      :bucket           bucket
+                                                                      :processors       {:list-s3-processor list-s3-processor
+                                                                                         :get-s3-objects    get-s3-objects
+                                                                                         :etlp-processor    etlp-processor}
+                                                                      :reducers         reducers
+                                                                      :reducer          reducer
+                                                                      :topology-builder s3-process-topology})]
+                         s3-connector)))
+
+
+(defmulti etlp-source (fn [op source] op))
+
+(defmethod etlp-source :read [_ source]
+  (.read! source))
+
+(defmethod etlp-source :spec [_ source]
+  (.spec source))
+
+(defmethod etlp-source :check [_ source]
+  (.check source))
+
+(defmethod etlp-source :discover [_ source]
+  (.discover source))
