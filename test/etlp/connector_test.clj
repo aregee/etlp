@@ -26,7 +26,7 @@
 
 (def etlp-s3-source {:s3-config s3-config
                      :bucket (System/getenv "ETLP_TEST_BUCKET")
-                     :prefix "stormbreaker/hl7"
+                     :prefix "stormbreaker/small-hl7"
                      :reducers {:hl7-reducer
                                 (comp
                                  (hl7-xform {})
@@ -34,11 +34,16 @@
                                         (clojure.string/join "\r" segments))))}
                      :reducer :hl7-reducer})
 
+(def connect-etlp {:xform       (comp (map wrap-record))
+                   :source      (create-s3-source! etlp-s3-source)
+                   :destination (create-stdout-destination! {})})
+
+(defn th [opts]
+  (-> (create-connection opts)
+     .start))
 
 (deftest test-etlp-connection
-  (is (= nil(create-connection {:source      (create-s3-source! etlp-s3-source)
-                                :xform       (comp (map wrap-record))
-                                :destination (create-stdout-destination! {})}))))
+  (is (= nil (th connect-etlp))))
 
 
 (def mock-topo {:workflow [[:processor-1 :processor-2]

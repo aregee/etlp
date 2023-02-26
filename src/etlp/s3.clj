@@ -76,9 +76,6 @@
         (debug e)
         (warn e)))))
 
-(def pf (fn []
-          1))
-
 
 (defn list-objects-pipeline [{:keys [client bucket prefix files-channel]}]
   (let [list-objects-request {:op :ListObjectsV2 :request {:Bucket bucket :Prefix prefix}}]
@@ -94,8 +91,10 @@
           files-channel)))
 
 
+(def pf (.availableProcessors (Runtime/getRuntime)))
+
 (defn get-object-pipeline-async [{:keys [client bucket files-channel output-channel]}]
-  (a/pipeline-async (.availableProcessors (Runtime/getRuntime))
+  (a/pipeline-async pf
                     output-channel
                     (fn [acc res]
                       (a/go
@@ -130,7 +129,7 @@
 
 (def get-s3-objects (fn [data]
                       (let [reducer (data :reducer)
-                            output (a/chan (* 64 1000) (mapcat (partial s3-reducible reducer)))]
+                            output (a/chan 2000000000 (mapcat (partial s3-reducible reducer)))]
                         (get-object-pipeline-async {:client         (data :s3-client)
                                                     :bucket         (data :bucket)
                                                     :files-channel  (data :channel)
@@ -158,7 +157,7 @@
                                     :meta      {:entity-type :processor
                                                 :processor   (processors :get-s3-objects)}}
 
-                   :etlp-output {:channel (a/chan 64000)
+                   :etlp-output {:channel (a/chan 2000000000)
                                  :meta    {:entity-type :processor
                                            :processor   (processors :etlp-processor)}}}
         workflow [[:list-s3-objects :get-s3-objects]
@@ -222,17 +221,3 @@
                                                                       :topology-builder s3-process-topology})]
                          s3-connector)))
 
-
-(defmulti etlp-source (fn [op source] op))
-
-(defmethod etlp-source :read [_ source]
-  (.read! source))
-
-(defmethod etlp-source :spec [_ source]
-  (.spec source))
-
-(defmethod etlp-source :check [_ source]
-  (.check source))
-
-(defmethod etlp-source :discover [_ source]
-  (.discover source))

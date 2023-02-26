@@ -35,9 +35,9 @@
 (defn- process-xform [xform input-channel]
   (try
     (if (instance? ManyToManyChannel input-channel)
-      (let [output-channel (a/chan 64000)]
-        (a/pipeline (.availableProcessors (Runtime/getRuntime)) output-channel xform input-channel)
-        output-channel)
+      (let [output-channel (a/chan 2000000000 xform)]
+;        (a/pipeline 16 output-channel xform input-channel)
+        (a/pipe input-channel output-channel))
       input-channel)
     (catch Exception ex (println (str "Eexception Occured" ex)))))
 
@@ -75,10 +75,11 @@
   EtlpConnection
   (start [this]
     (let [dest (:destination this)
-          src (:source this)
-          xf (:xform this)]
-      (a/<!!
-       (a/pipeline (.availableProcessors (Runtime/getRuntime)) dest xf src)))))
+          src  (:source this)
+          xf   (:xform this)
+          axfd (a/pipe src (a/chan 2000000000 xf))]
+      (a/pipe axfd dest))))
+
 
 (defn log-output [data]
   (while true
@@ -90,23 +91,25 @@
                         ch
                         (ch :channel))))
 
+
 (defn update-state! [rows batch]
   (swap! rows + (count batch))
-  (println (wrap-log (str "Total Count of Records:: " @rows))))
+  (println (wrap-log (str "Total Count of Records:: " @rows)))
+  @rows)
 
 
 (defn stdout-topology [{:keys [processors connection-state]}]
   (let [records (connection-state :records)
         count-records! (partial update-state! records)
-        entities {:etlp-input {:channel (a/chan 64000)
+        entities {:etlp-input {:channel (a/chan 2000000000)
                                :meta    {:entity-type :processor
                                          :processor   (processors :etlp-processor)}}
 
-                  :etlp-output {:channel (a/chan 64000)
+                  :etlp-output {
                                 :meta    {:entity-type :xform-provider
                                           :xform   (comp
                                                     (keep (fn [x] (println x) x))
-                                                    (partition-all  100)
+                                                    (partition-all  10)
                                                     (keep count-records!))}}}
         workflow [[:etlp-input :etlp-output]]]
 
@@ -162,4 +165,4 @@
   (let [etlp-src     (etlp-source :read source)
         etlp-dest    (etlp-destination :write destination)
         connection (map->EtlpConnect {:config {:pf 1} :source etlp-src :destination etlp-dest :xform xform})]
-    (.start connection)))
+    connection))
