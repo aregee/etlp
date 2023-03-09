@@ -35,7 +35,7 @@
 (defn- process-xform [xform input-channel]
   (try
     (if (instance? ManyToManyChannel input-channel)
-      (let [output-channel (a/chan 2000000000 xform)]
+      (let [output-channel (a/chan 1 xform)]
 ;        (a/pipeline 16 output-channel xform input-channel)
         (a/pipe input-channel output-channel))
       input-channel)
@@ -65,14 +65,43 @@
               (swap! entities assoc-in [to-entity :channel] output-channel))))))
     @entities))
 
+
+(defmulti etlp-source (fn [op source] op))
+
+(defmethod etlp-source :read [_ source]
+  (.read! source))
+
+(defmethod etlp-source :spec [_ source]
+  (.spec source))
+
+(defmethod etlp-source :check [_ source]
+  (.check source))
+
+(defmethod etlp-source :discover [_ source]
+  (.discover source))
+
+
+(defmulti etlp-destination (fn [op dest] op))
+
+(defmethod etlp-destination :write [_ dest]
+  (.write! dest))
+
+(defmethod etlp-destination :spec [_ dest]
+  (.spec dest))
+
+(defmethod etlp-destination :check [_ dest]
+  (.check dest))
+
 (defprotocol EtlpConnection
   (spec [this] "Return the spec of the source.")
   (source [this] "Soruce Connector.")
   (destination [this] "Destination Connector")
   (start [this] "Trigger the A->B Flow using connector/connect"))
 
+
 (defrecord EtlpConnect [config source destination xform]
   EtlpConnection
+  (spec [this])
   (start [this]
     (let [dest (:destination this)
           src  (:source this)
@@ -133,32 +162,6 @@
                                                                                        :topology-builder stdout-topology})]
                                   stdout-destination)))
 
-
-(defmulti etlp-source (fn [op source] op))
-
-(defmethod etlp-source :read [_ source]
-  (.read! source))
-
-(defmethod etlp-source :spec [_ source]
-  (.spec source))
-
-(defmethod etlp-source :check [_ source]
-  (.check source))
-
-(defmethod etlp-source :discover [_ source]
-  (.discover source))
-
-
-(defmulti etlp-destination (fn [op dest] op))
-
-(defmethod etlp-destination :write [_ dest]
-  (.write! dest))
-
-(defmethod etlp-destination :spec [_ dest]
-  (.spec dest))
-
-(defmethod etlp-destination :check [_ dest]
-  (.check dest))
 
 
 (defn create-connection [{:keys [source destination xform] :as config}]

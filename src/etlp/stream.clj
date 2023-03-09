@@ -49,21 +49,6 @@
            (let [h (peek @qv)]
              (vswap! qv pop)
              (rf acc h))))))))
-(comment
-
-  (map->EtlpS3Connector {:s3-config        s3-config
-                         :prefix           "stormbreaker/hl7"
-                         :bucket           (System/getenv "ETLP_TEST_BUCKET")
-                         :processors       {:list-s3-processor list-s3-processor
-                                            :get-s3-objects    get-s3-objects
-                                            :etlp-processor    etlp-processor
-                                            }
-                         :reducers         {
-                                            :s3-reducer reduce-s3
-                                            }
-                         :reducer          :s3-reducer
-                         :topology-builder topology-builder}))
-
 
 (defn- s3-pg-stream [{:keys [s3-config opts params table-opts xform-provider reducers sinks reducer]}]
   (let [bucket-reducer (:s3-bucket-reducer reducers)
@@ -124,6 +109,13 @@
         processor (bucket-reducer {:s3-client s3c :s3-config s3-config :pipeline compose-xf})]
     (processor opts)))
 
+
+(defn- etlp-airbyte-source [{:keys [s3-config opts reducers xform-provider params reducer]}]
+  (let [etlp-source {:s3-config s3-config
+                     :bucket (opts :bucket)
+                     :prefix (opts :prefix)
+                     :reducers reducers
+                     :reducer reducer}]))
 
 (defn create-stdout-stream [{:keys [source-type] :as args}]
   (if (= source-type :fs)
@@ -210,7 +202,7 @@
           :reducers (ig/ref ::reducers)}})
 
 
-(defn- airbyte-connector
+(defn- etlp-connector
   "The production config.
   When the 'dev' alias is active, this config will not be used."
   [conf]
@@ -221,6 +213,8 @@
    ::discover {}
    
    ::read {}
+
+   ::write {}
 
    ::reducers (:reducers conf)
    

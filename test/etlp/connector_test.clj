@@ -26,7 +26,7 @@
 
 (def etlp-s3-source {:s3-config s3-config
                      :bucket (System/getenv "ETLP_TEST_BUCKET")
-                     :prefix "stormbreaker/small-hl7"
+                     :prefix "hl710M/ADT10MSplit_10"
                      :reducers {:hl7-reducer
                                 (comp
                                  (hl7-xform {})
@@ -42,8 +42,10 @@
   (-> (create-connection opts)
      .start))
 
+(defn ffuture [](future (.start (Thread.  #(th connect-etlp))) (.getId (Thread/currentThread))))
+
 (deftest test-etlp-connection
-  (is (= nil (th connect-etlp))))
+  (is (= nil (ffuture))))
 
 
 (def mock-topo {:workflow [[:processor-1 :processor-2]
