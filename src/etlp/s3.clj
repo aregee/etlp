@@ -83,7 +83,6 @@
             (let [response   (a/<! (aws/invoke-async client (assoc-in list-objects-request [:request :NextContinuationToken] marker)))
                   contents   (:Contents response)
                   new-marker (:NextContinuationToken response)]
-              (println ">>>>>" (keys response))
               (doseq [file contents]
                 (a/>! files-channel file))
               (if new-marker
@@ -130,7 +129,7 @@
 
 (def get-s3-objects (fn [data]
                       (let [reducer (data :reducer)
-                            output (a/chan 1 (mapcat (partial s3-reducible reducer)))]
+                            output (a/chan (a/sliding-buffer 100000) (mapcat (partial s3-reducible reducer)))]
                         (get-object-pipeline-async {:client         (data :s3-client)
                                                     :bucket         (data :bucket)
                                                     :files-channel  (data :channel)
@@ -148,7 +147,7 @@
         entities  {:list-s3-objects {:s3-client s3-client
                                      :bucket    bucket
                                      :prefix    prefix
-                                     :channel   (a/chan)
+                                     :channel   (a/chan (a/sliding-buffer 100000))
                                      :meta      {:entity-type :processor
                                                  :processor   (processors :list-s3-processor)}}
 
@@ -158,7 +157,7 @@
                                     :meta      {:entity-type :processor
                                                 :processor   (processors :get-s3-objects)}}
 
-                   :etlp-output {:channel (a/chan)
+                   :etlp-output {:channel (a/chan (a/buffer 100000))
                                  :meta    {:entity-type :processor
                                            :processor   (processors :etlp-processor)}}}
         workflow [[:list-s3-objects :get-s3-objects]

@@ -26,7 +26,7 @@
 
 (def etlp-s3-source {:s3-config s3-config
                      :bucket (System/getenv "ETLP_TEST_BUCKET")
-                     :prefix "hl710M/ADT10MSplit_10"
+                     :prefix "stormbreaker/hl7"
                      :reducers {:hl7-reducer
                                 (comp
                                  (hl7-xform {})
