@@ -3,7 +3,7 @@
             [etlp.core-test :refer [hl7-xform]]
             [clojure.pprint :refer [pprint]]
             [etlp.utils :refer [wrap-log wrap-record]]
-            [etlp.s3 :refer [create-s3-source!]]
+            [etlp.s3 :refer [create-s3-source! create-s3-list-source!]]
             [etlp.connector :refer [create-stdout-destination! create-connection etlp-source etlp-destination]]
             [etlp.async :refer [save-into-database]]
             [cognitect.aws.client.api :as aws]
@@ -24,9 +24,11 @@
 
 
 
+(def remove-me-before-commit "hl710M/ADT10MSplit_10")
+
 (def etlp-s3-source {:s3-config s3-config
                      :bucket (System/getenv "ETLP_TEST_BUCKET")
-                     :prefix "stormbreaker/hl7"
+                     :prefix "hl710M/ADT10MSplit_10"
                      :reducers {:hl7-reducer
                                 (comp
                                  (hl7-xform {})
@@ -35,7 +37,7 @@
                      :reducer :hl7-reducer})
 
 (def connect-etlp {:xform       (comp (map wrap-record))
-                   :source      (create-s3-source! etlp-s3-source)
+                   :source      (create-s3-list-source! etlp-s3-source)
                    :destination (create-stdout-destination! {})})
 
 (defn th [opts]

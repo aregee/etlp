@@ -35,7 +35,7 @@
 (defn- process-xform [xform input-channel]
   (try
     (if (instance? ManyToManyChannel input-channel)
-      (let [output-channel (a/chan (a/sliding-buffer 100000) xform)]
+      (let [output-channel (a/chan (a/sliding-buffer 2000000) xform)]
 ;        (a/pipeline 16 output-channel xform input-channel)
         (a/pipe input-channel output-channel))
       input-channel)
@@ -106,7 +106,7 @@
     (let [dest (:destination this)
           src  (:source this)
           xf   (:xform this)
-          axfd (a/pipe src (a/chan (a/sliding-buffer 100000) xf))]
+          axfd (a/pipe src (a/chan (a/sliding-buffer 2000000) xf))]
       (a/pipe axfd dest))))
 
 
@@ -130,7 +130,7 @@
 (defn stdout-topology [{:keys [processors connection-state]}]
   (let [records (connection-state :records)
         count-records! (partial update-state! records)
-        entities {:etlp-input {:channel (a/chan (a/sliding-buffer 100000))
+        entities {:etlp-input {:channel (a/chan (a/buffer 100000))
                                :meta    {:entity-type :processor
                                          :processor   (processors :etlp-processor)}}
 
@@ -138,7 +138,7 @@
                                 :meta    {:entity-type :xform-provider
                                           :xform   (comp
                                                     (keep (fn [x] (println x) x))
-                                                    (partition-all  10)
+                                                    (partition-all  100)
                                                     (keep count-records!))}}}
         workflow [[:etlp-input :etlp-output]]]
 

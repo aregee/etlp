@@ -129,7 +129,7 @@
 
 (def get-s3-objects (fn [data]
                       (let [reducer (data :reducer)
-                            output (a/chan (a/sliding-buffer 100000) (mapcat (partial s3-reducible reducer)))]
+                            output (a/chan (a/buffer 200000) (mapcat (partial s3-reducible reducer)))]
                         (get-object-pipeline-async {:client         (data :s3-client)
                                                     :bucket         (data :bucket)
                                                     :files-channel  (data :channel)
@@ -147,7 +147,7 @@
         entities  {:list-s3-objects {:s3-client s3-client
                                      :bucket    bucket
                                      :prefix    prefix
-                                     :channel   (a/chan (a/sliding-buffer 100000))
+                                     :channel   (a/chan (a/buffer 1000))
                                      :meta      {:entity-type :processor
                                                  :processor   (processors :list-s3-processor)}}
 
@@ -157,7 +157,7 @@
                                     :meta      {:entity-type :processor
                                                 :processor   (processors :get-s3-objects)}}
 
-                   :etlp-output {:channel (a/chan (a/buffer 100000))
+                   :etlp-output {:channel (a/chan (a/buffer 10000))
                                  :meta    {:entity-type :processor
                                            :processor   (processors :etlp-processor)}}}
         workflow [[:list-s3-objects :get-s3-objects]
@@ -165,6 +165,25 @@
 
     {:entities entities
      :workflow workflow}))
+
+(defn s3-list-topology [{:keys [s3-config prefix bucket processors reducers reducer]}]
+  (let [s3-client (s3-invoke s3-config)
+        entities  {:list-s3-objects {:s3-client s3-client
+                                     :bucket    bucket
+                                     :prefix    prefix
+                                     :channel   (a/chan (a/buffer 1000))
+                                     :meta      {:entity-type :processor
+                                                 :processor   (processors :list-s3-processor)}}
+
+
+                   :etlp-output {:channel (a/chan (a/sliding-buffer 10000))
+                                 :meta    {:entity-type :processor
+                                           :processor   (processors :etlp-processor)}}}
+        workflow [[:list-s3-objects :etlp-output]]]
+
+    {:entities entities
+     :workflow workflow}))
+
 
 
 (defn save-into-database [rows batch]
@@ -221,3 +240,13 @@
                                                                       :topology-builder s3-process-topology})]
                          s3-connector)))
 
+(def create-s3-list-source! (fn [{:keys [s3-config bucket prefix reducers reducer] :as opts}]
+                             (let [s3-connector (map->EtlpAirbyteS3Source {:s3-config        s3-config
+                                                                           :prefix           prefix
+                                                                           :bucket           bucket
+                                                                           :processors       {:list-s3-processor list-s3-processor
+                                                                                              :etlp-processor    etlp-processor}
+                                                                           :reducers         reducers
+                                                                           :reducer          reducer
+                                                                           :topology-builder s3-list-topology})]
+                              s3-connector)))
