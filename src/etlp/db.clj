@@ -1,10 +1,11 @@
 (ns etlp.db
   (:require   [clojure.string :as str]
+              [clojure.edn :as edn]
               [clojure.tools.logging :as log]
+              [honey.sql :as sql]
+              [clj-postgresql.core :as pg]
               [clojure.core.async :as async :refer [<! >! <!! >!! go-loop chan close! timeout]]
-              [org.postgresql.util :as pgutil]
-              [clojure.java.jdbc :as jdbc]
-              [java.util.concurrent :as javautil.concurrent])
+              [clojure.java.jdbc :as jdbc])
   (:gen-class))
 
 
@@ -47,55 +48,49 @@
    (apply-schema-migration db {:table table :specs specs})
    ((pg-destination db) table)))
 
+(defprotocol PaginatedJDBCResource
+  (execute-query [this query page-size offset-atom])
+  (get-total [this query])
+  (get-page-size [this query])
+  (get-poll-interval [this]))
 
-(defn- get-total-count [table-name where-clause]
-  (let [count-query (str "SELECT count(*) FROM " table-name where-clause)]
-    (->> (jdbc/query conn count-query)
-         (first)
-         (get "count")
-         (pgutil.parseInt))))
+(defrecord JDBCResource [db-spec query page-size poll-interval]
+  PaginatedJDBCResource
+  (execute-query [this query page-size offset-atom]
+    (let [table-name (->> (re-find #"(?i)FROM (\w+)" query) second keyword)
+          total (.getTotal this query)
+          select-query (str "SELECT total, count(*), json_agg(row_to_json(_))
+                             FROM (" query ") AS _, LATERAL (SELECT COUNT(*) AS total FROM _ ) AS __
+                             WHERE id > " offset-atom " GROUP BY total ORDER BY total LIMIT " page-size)
+          sql (str "SELECT json_build_object(
+                        'total', ", total, ",
+                        'count', count,
+                        'offset', ", offset-atom, ",
+                        'results', ", "(SELECT json_agg(q) FROM (" select-query ") AS q)", "
+                      )")
+          results (jdbc/query db-spec sql)]
+      results))
+  (get-total [this query]
+    (let [sql (str "SELECT COUNT(*) FROM (" query ") AS _")]
+      (-> (jdbc/query db-spec sql)
+          first
+          (get :count))))
+  (get-page-size [this query]
+    (edn/read-string (str/replace-first query #"LIMIT (\d+).*" "$1")))
+  (get-poll-interval [this]
+    poll-interval))
 
-(defn- build-paginated-query [table-name where-clause page-size offset-atom]
-  (str "SELECT json_build_object(
-            'total', " (get-total-count table-name where-clause) ",
-            'count', count(" table-name ".*)
-                     FILTER (WHERE " table-name ".id > " @offset-atom ") ,
-            'offset', " @offset-atom ",
-            'results', json_agg(row_to_json(" table-name "))
-          )
-          FROM (" (str "SELECT * FROM " table-name where-clause " ORDER BY id LIMIT " page-size " OFFSET " @offset-atom ") " table-name ")")))
 
-(defprotocol PaginatedResource
-  (start [this interval-ms page-size query]))
-
-(defrecord JdbcPaginatedResource [conn table-name where-clause]
-  PaginatedResource
-  (start [this interval-ms page-size query]
-    (let [result-chan (chan)
-          offset-atom (atom 0)
-          query (build-paginated-query table-name where-clause page-size offset-atom)]
-      (log/infof "Starting paginated query: %s" query)
-      (go-loop []
-        (let [start-time (System/currentTimeMillis)]
-          (try
-            (let [rows (jdbc/query conn query)]
-              (doseq [row rows]
-                (>! result-chan row))
-              (let [total-count (->> rows
-                                    first
-                                    (get "total")
-                                    (pgutil.parseInt))
-                    count (count rows)]
-                (log/infof "Fetched %d/%d rows, total count is %d" count page-size total-count)
-                (when (< count page-size)
-                  (log/info "All rows fetched, closing result channel and stopping query loop")
-                  (close! result-chan)))
-              (reset! offset-atom (+ @offset-atom page-size)))
-            (catch Exception e
-              (log/errorf "Error while fetching rows: %s" e)))
-          (let [elapsed-ms (- (System/currentTimeMillis) start-time)
-                wait-ms (max 0 (- interval-ms elapsed-ms))]
-            (when (> wait-ms 0)
-              (<! (timeout wait-ms))))
-          (when-not (channel-closed? result-chan)
-            (recur)))))))
+(defn start [resource poll-interval]
+  (let [result-chan (async/chan)]
+    (go-loop [offset (atom 0)]
+      (let [page (.executeQuery resource (.query resource) (.pageSize resource) @offset)]
+        (async/>! result-chan page)
+        (let [total (get-in page [0 "total"])
+              count (get-in page [0 "count"])
+              new-offset (+ @offset (.getPageSize resource (.query resource)))]
+          (when (< new-offset total)
+            (Thread/sleep (.getPollInterval resource))
+            (reset! offset new-offset)
+            (recur offset)))))
+    result-chan))

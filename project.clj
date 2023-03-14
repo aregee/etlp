@@ -14,6 +14,7 @@
                  [com.cognitect.aws/api "0.8.635"]
                  [org.clojure/tools.logging "1.2.4"]
                  [org.clojure/core.async "0.4.500"]
+                 [com.github.seancorfield/honeysql "2.4.1002"]
                  [org.clojure/java.jdbc "0.7.11"]]
   :deploy-repositories {"releases" {:url "https://repo.clojars.org" :creds :gpg}}
   :plugins [[lein-with-env-vars "0.2.0"]]
