@@ -11,6 +11,7 @@
                  [willa "0.1.1-SNAPSHOT"]
                  [com.cognitect.aws/endpoints "1.1.12.380"]
                  [com.cognitect.aws/s3 "825.2.1250.0"]
+                 [clj-http "3.12.3"]
                  [com.cognitect.aws/api "0.8.635"]
                  [org.clojure/tools.logging "1.2.4"]
                  [org.clojure/core.async "0.4.500"]

@@ -195,9 +195,9 @@
                              :ctx {:name :s3-pg-processor
                                    :source-type :s3
                                    :process-fn create-pg-stream-processor
-                                   :reducer :hl7-reducer-s3
-                                   :table-opts table-hl7-opts
-                                   :xform-provider pipeline-hl7v2}})
+                                   :reducer :json-reducer-s3
+                                   :table-opts table-opts
+                                   :xform-provider pg-pipeline}})
 
 (def etlp-stdout-hl7-processor {:id 8
                                 :component :etlp.core/processors
@@ -317,11 +317,10 @@
 ;; (stream-files-from-s3-bucket config-map)
 
 
-(comment
-  (deftest pg-fs-test
-    (testing "etlp/files-to-pg-processor should execute without error"
-      (let [pg-processor (etlp-app {:processor :fs-pg-processor :params {:key 1}})]
-        (is (= nil (pg-processor {:path "resources/fix/" :prefix "stormbreaker/json"})))))))
+;; (deftest pg-fs-test
+;;     (testing "etlp/files-to-pg-processor should execute without error"
+;;       (let [pg-processor (etlp-app {:processor :fs-pg-processor :params {:key 1}})]
+;;         (is (= nil (pg-processor {:path "resources/fix/" :prefix "stormbreaker/json"}))))))
 
 (comment
   (deftest kafka-fs-test
@@ -329,10 +328,10 @@
       (let [processor (etlp-app {:processor :fs-kafka-json-processor :params {:key 1 :throttle 100}})]
         (is (= nil (processor {:path "resources/fix/"})))))))
 
-;; (deftest pg-s3-test
-;;   (testing "etlp/files-to-pg-processor should execute without error"
-;;     (let [pg-processor (etlp-app {:processor :stdout-processor :params {:key 1}})]
-;;       (is (= nil (pg-processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/hl7"}))))))
+(deftest pg-s3-test
+  (testing "etlp/files-to-pg-processor should execute without error"
+    (let [pg-processor (etlp-app {:processor :s3-pg-processor :params {:key 1}})]
+      (is (= nil (pg-processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/json"}))))))
 
 
 ;; (deftest kafka-s3-test

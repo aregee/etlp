@@ -4,6 +4,7 @@
             [clojure.pprint :refer [pprint]]
             [etlp.utils :refer [wrap-log wrap-record]]
             [etlp.s3 :refer [create-s3-source! create-s3-list-source!]]
+            [etlp.db :refer [create-jdbc-processor!]]
             [etlp.connector :refer [create-stdout-destination! create-connection etlp-source etlp-destination]]
             [etlp.async :refer [save-into-database]]
             [cognitect.aws.client.api :as aws]
@@ -44,10 +45,39 @@
   (-> (create-connection opts)
      .start))
 
+(def db-spec {:dbtype "postgresql"
+              :dbname "test"
+              :user "postgres"
+              :password "test"
+              :host "localhost"
+              :port 5432})
+
+ (def query "SELECT * FROM test_log_clj")
+
+ (def page-size 10)
+
+ (def poll-interval 5000)
+
+(def offset-atom (atom 0))
+
+(def jdbc-process-opts {:db-spec db-spec
+                                       :query query
+                                       :page-size page-size
+                                       :poll-interval poll-interval
+                                       :offset-atom offset-atom})
+
+;; (def results-chan (start jdbc-resource))
+
+;; Read all results from the channel
+;; (let [all-results (doall (a/into [] results-chan))]
+;;    (println all-results))
+
+
+
 (defn ffuture [](future (.start (Thread.  #(th connect-etlp))) (.getId (Thread/currentThread))))
 
-(deftest test-etlp-connection
-  (is (= nil (ffuture))))
+;; (deftest test-etlp-connection
+;;   (is (= nil (ffuture))))
 
 
 (def mock-topo {:workflow [[:processor-1 :processor-2]

@@ -49,48 +49,58 @@
    ((pg-destination db) table)))
 
 (defprotocol PaginatedJDBCResource
-  (execute-query [this query page-size offset-atom])
-  (get-total [this query])
-  (get-page-size [this query])
-  (get-poll-interval [this]))
+  (execute [this])
+  (total [this])
+  (pageSize [this])
+  (pollInterval [this]))
 
-(defrecord JDBCResource [db-spec query page-size poll-interval]
+(defrecord JDBCResource [db-spec query page-size poll-interval offset-atom]
   PaginatedJDBCResource
-  (execute-query [this query page-size offset-atom]
-    (let [table-name (->> (re-find #"(?i)FROM (\w+)" query) second keyword)
-          total (.getTotal this query)
+  (execute [this]
+    (let [query (:query this)
+          page-size (:page-size this)
+          offset-atom @(:offset-atom this)
+          table-name (->> (re-find #"(?i)FROM (\w+)" query) second keyword)
+          total (.total this)
           select-query (str "SELECT total, count(*), json_agg(row_to_json(_))
                              FROM (" query ") AS _, LATERAL (SELECT COUNT(*) AS total FROM _ ) AS __
                              WHERE id > " offset-atom " GROUP BY total ORDER BY total LIMIT " page-size)
           sql (str "SELECT json_build_object(
                         'total', ", total, ",
-                        'count', count,
+                        'count', ", count, ",
                         'offset', ", offset-atom, ",
                         'results', ", "(SELECT json_agg(q) FROM (" select-query ") AS q)", "
                       )")
           results (jdbc/query db-spec sql)]
       results))
-  (get-total [this query]
-    (let [sql (str "SELECT COUNT(*) FROM (" query ") AS _")]
+  (total [this]
+    (let [query (:query this)
+          db-spec (:db-spec this)
+          sql (str "SELECT COUNT(*) FROM (" query ") AS _")]
       (-> (jdbc/query db-spec sql)
           first
           (get :count))))
-  (get-page-size [this query]
-    (edn/read-string (str/replace-first query #"LIMIT (\d+).*" "$1")))
-  (get-poll-interval [this]
-    poll-interval))
+  (pageSize [this]
+    (edn/read-string (str/replace-first (:query this) #"LIMIT (\d+).*" "$1")))
+  (pollInterval [this]
+    (:poll-interval this)))
 
 
-(defn start [resource poll-interval]
+(defn start [resource]
   (let [result-chan (async/chan)]
-    (go-loop [offset (atom 0)]
-      (let [page (.executeQuery resource (.query resource) (.pageSize resource) @offset)]
+    (go-loop [offset (:offset-atom resource)]
+      (let [page (.execute resource)]
         (async/>! result-chan page)
         (let [total (get-in page [0 "total"])
               count (get-in page [0 "count"])
-              new-offset (+ @offset (.getPageSize resource (.query resource)))]
+              new-offset (+ @offset (.pageSize resource ))]
           (when (< new-offset total)
-            (Thread/sleep (.getPollInterval resource))
+            (Thread/sleep (.pollInterval resource))
             (reset! offset new-offset)
             (recur offset)))))
     result-chan))
+
+
+(def create-jdbc-processor! (fn [opts]
+                              (let [processor (map->JDBCResource opts)]
+                                (start processor))))
