@@ -48,6 +48,7 @@
    (apply-schema-migration db {:table table :specs specs})
    ((pg-destination db) table)))
 
+
 (defprotocol PaginatedJDBCResource
   (execute [this])
   (total [this])
@@ -57,31 +58,28 @@
 (defrecord JDBCResource [db-spec query page-size poll-interval offset-atom]
   PaginatedJDBCResource
   (execute [this]
-    (let [query (:query this)
-          page-size (:page-size this)
+    (let [page-size (:page-size this)
           offset-atom @(:offset-atom this)
           table-name (->> (re-find #"(?i)FROM (\w+)" query) second keyword)
           total (.total this)
-          select-query (str "SELECT total, count(*), json_agg(row_to_json(_))
-                             FROM (" query ") AS _, LATERAL (SELECT COUNT(*) AS total FROM _ ) AS __
-                             WHERE id > " offset-atom " GROUP BY total ORDER BY total LIMIT " page-size)
+          select-query (str "(" query " ORDER BY created_at LIMIT " page-size " OFFSET " offset-atom ")")
           sql (str "SELECT json_build_object(
                         'total', ", total, ",
-                        'count', ", count, ",
+                        'count', count(q.*),
                         'offset', ", offset-atom, ",
-                        'results', ", "(SELECT json_agg(q) FROM (" select-query ") AS q)", "
-                      )")
+                        'results', json_agg(row_to_json(q))) FROM (" select-query ") AS q")
           results (jdbc/query db-spec sql)]
+      (println "invoked")
       results))
   (total [this]
-    (let [query (:query this)
-          db-spec (:db-spec this)
-          sql (str "SELECT COUNT(*) FROM (" query ") AS _")]
+    (let [db-spec (:db-spec this)
+          query (:query this)
+          sql (str "SELECT COUNT(*) FROM (" query ") _")]
       (-> (jdbc/query db-spec sql)
           first
           (get :count))))
   (pageSize [this]
-    (edn/read-string (str/replace-first (:query this) #"LIMIT (\d+).*" "$1")))
+    (:page-size this))
   (pollInterval [this]
     (:poll-interval this)))
 
@@ -90,12 +88,14 @@
   (let [result-chan (async/chan)]
     (go-loop [offset (:offset-atom resource)]
       (let [page (.execute resource)]
-        (async/>! result-chan page)
-        (let [total (get-in page [0 "total"])
-              count (get-in page [0 "count"])
-              new-offset (+ @offset (.pageSize resource ))]
+        (async/>! result-chan (first page))
+        (let [total (get-in (first page) [:json_build_object "total"])
+              count (get-in (first page) [:json_build_object "count"])
+              new-offset (+ @offset (.pageSize resource))]
+          (println total count new-offset)
           (when (< new-offset total)
-            (Thread/sleep (.pollInterval resource))
+            (println ">>> should trigger poll")
+;            (Thread/sleep (.pollInterval resource))
             (reset! offset new-offset)
             (recur offset)))))
     result-chan))
@@ -103,4 +103,4 @@
 
 (def create-jdbc-processor! (fn [opts]
                               (let [processor (map->JDBCResource opts)]
-                                (start processor))))
+                                processor)))

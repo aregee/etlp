@@ -2,9 +2,10 @@
   (:require [clojure.test :refer :all]
             [etlp.core-test :refer [hl7-xform]]
             [clojure.pprint :refer [pprint]]
+            [cheshire.core :as json]
             [etlp.utils :refer [wrap-log wrap-record]]
             [etlp.s3 :refer [create-s3-source! create-s3-list-source!]]
-            [etlp.db :refer [create-jdbc-processor!]]
+            [etlp.db :refer [create-jdbc-processor! start]]
             [etlp.connector :refer [create-stdout-destination! create-connection etlp-source etlp-destination]]
             [etlp.async :refer [save-into-database]]
             [cognitect.aws.client.api :as aws]
@@ -37,40 +38,41 @@
                                         (clojure.string/join "\r" segments))))}
                      :reducer :hl7-reducer})
 
-(def connect-etlp {:xform       (comp (map wrap-record))
-                   :source      (create-s3-list-source! etlp-s3-source)
+(def db-spec {:dbtype "postgresql"
+              :dbname "test"
+              :user "postgres"
+              :password "postgres"
+              :host "localhost"
+              :port 5432})
+
+(def query "SELECT * FROM test_log_clj")
+
+(def page-size 1000)
+
+(def poll-interval 5000)
+
+(def offset-atom (atom 0))
+
+(def jdbc-process-opts {:db-spec       db-spec
+                        :query         query
+                        :page-size     page-size
+                        :poll-interval poll-interval
+                        :offset-atom   offset-atom})
+
+(def pg-processor (create-jdbc-processor! jdbc-process-opts))
+
+;; Read all results from the channel
+
+(def connect-etlp {:xform (comp (map (fn [data]
+                                       (get-in data [:json_build_object "results"])))
+                                (mapcat (fn [item] item))
+                                (map wrap-record))
+                   :source      (start pg-processor)
                    :destination (create-stdout-destination! {})})
 
 (defn th [opts]
   (-> (create-connection opts)
      .start))
-
-(def db-spec {:dbtype "postgresql"
-              :dbname "test"
-              :user "postgres"
-              :password "test"
-              :host "localhost"
-              :port 5432})
-
- (def query "SELECT * FROM test_log_clj")
-
- (def page-size 10)
-
- (def poll-interval 5000)
-
-(def offset-atom (atom 0))
-
-(def jdbc-process-opts {:db-spec db-spec
-                                       :query query
-                                       :page-size page-size
-                                       :poll-interval poll-interval
-                                       :offset-atom offset-atom})
-
-;; (def results-chan (start jdbc-resource))
-
-;; Read all results from the channel
-;; (let [all-results (doall (a/into [] results-chan))]
-;;    (println all-results))
 
 
 

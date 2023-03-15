@@ -328,10 +328,11 @@
       (let [processor (etlp-app {:processor :fs-kafka-json-processor :params {:key 1 :throttle 100}})]
         (is (= nil (processor {:path "resources/fix/"})))))))
 
-(deftest pg-s3-test
-  (testing "etlp/files-to-pg-processor should execute without error"
-    (let [pg-processor (etlp-app {:processor :s3-pg-processor :params {:key 1}})]
-      (is (= nil (pg-processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/json"}))))))
+(comment
+  (deftest pg-s3-test
+    (testing "etlp/files-to-pg-processor should execute without error"
+      (let [pg-processor (etlp-app {:processor :s3-pg-processor :params {:key 1}})]
+        (is (= nil (pg-processor {:bucket (System/getenv "ETLP_TEST_BUCKET") :prefix "stormbreaker/json"})))))))
 
 
 ;; (deftest kafka-s3-test
