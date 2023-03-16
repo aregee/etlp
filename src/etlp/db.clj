@@ -2,10 +2,13 @@
   (:require   [clojure.string :as str]
               [clojure.edn :as edn]
               [clojure.tools.logging :as log]
-              [honey.sql :as sql]
+              [etlp.airbyte :refer [EtlpAirbyteSource]]
               [clj-postgresql.core :as pg]
+              [etlp.connector :refer [connect]]
               [clojure.core.async :as async :refer [<! >! <!! >!! go-loop chan close! timeout]]
-              [clojure.java.jdbc :as jdbc])
+              [clojure.java.jdbc :as jdbc]
+              [clojure.core.async :as a])
+  (:import [clojure.core.async.impl.channels ManyToManyChannel])
   (:gen-class))
 
 
@@ -95,7 +98,7 @@
           (println total count new-offset)
           (when (< new-offset total)
             (println ">>> should trigger poll")
-;            (Thread/sleep (.pollInterval resource))
+            (Thread/sleep (.pollInterval resource))
             (reset! offset new-offset)
             (recur offset)))))
     result-chan))
@@ -104,3 +107,87 @@
 (def create-jdbc-processor! (fn [opts]
                               (let [processor (map->JDBCResource opts)]
                                 processor)))
+
+
+(defn list-pg-processor [data]
+  (let [opts (data :db-config)
+        jdbc-reader (create-jdbc-processor! opts)]
+    (println ">>>>invoked>>>> pg-processor " opts)
+    (a/pipe (start jdbc-reader) (data :channel))))
+
+
+(def get-pg-rows (fn [data]
+                      (let [reducer (data :reducer)
+                            output (a/chan (a/buffer 2000000) (mapcat reducer))]
+                        output)))
+
+(def etlp-processor (fn [ch]
+                      (if (instance? ManyToManyChannel ch)
+                        ch
+                        (ch :channel))))
+
+
+
+(defn pg-process-topology [{:keys [db-config processors reducers reducer]}]
+  (let [entities {:list-pg-processor {:db-config db-config
+                                      :channel   (a/chan (a/buffer (db-config :page-size)))
+                                      :meta      {:entity-type :processor
+                                                  :processor   (processors :list-pg-processor)}}
+                  :read-pg-chunks    {:reducer (reducers reducer)
+                                      :meta    {:entity-type :processor
+                                                :processor   (processors :read-pg-chunks)}}
+                  :etlp-output       {:channel (a/chan (a/buffer (db-config :page-size)))
+                                      :meta    {:entity-type :processor
+                                                :processor   (processors :etlp-processor)}}}
+        workflow [[:list-pg-processor :read-pg-chunks]
+                  [:read-pg-chunks :etlp-output]]]
+    {:entities entities
+     :workflow workflow}))
+
+
+(defrecord EtlpAirbytePostgresSource [db-config processors topology-builder reducers reducer]
+  EtlpAirbyteSource
+  (spec [this] {:supported-destination-streams []
+                :supported-source-streams      [{:stream_name "pg_stream"
+                                                 :schema      {:type       "object"
+                                                               :properties {:db-config  {:type        "object"
+                                                                                         :description "S3 connection configuration."}
+
+                                                                            :processors {:type        "object"
+                                                                                         :description "Processors to be used to extract and transform data from the S3 bucket."}}}}]})
+
+  (check [this]
+    (let [errors (conj [] (when (nil? (:db-config this))
+                            "s3-config is missing")
+                       (when (nil? (:reducers this))
+                         "bucket is missing")
+                       (when (nil? (:processors this))
+                         "processors is missing"))]
+      {:status  (if (empty? errors) :valid :invalid)
+       :message (if (empty? errors) "Source configuration is valid."
+                    (str "Source configuration is invalid. Errors: " (clojure.string/join ", " errors)))}))
+
+  (discover [this]
+            ;; TODO use config and topology to discover schema from mappings
+    {:streams [{:stream_name "pg_stream"
+                :schema      {:type       "object"
+                              :properties {:data {:type "string"}}}}]})
+  (read! [this]
+    (let [topology     (topology-builder this)
+          etlp         (connect topology)
+          records      (atom 0)
+          reducers     (get-in this [:reducers])
+          xform        (get-in this [:reducer])
+          data-channel (get-in etlp [:etlp-output :channel])]
+     data-channel)))
+
+
+(def create-postgres-source! (fn [{:keys [db-config reducers reducer] :as opts}]
+                               (let [pg-connector (map->EtlpAirbytePostgresSource {:db-config        db-config
+                                                                                   :processors       {:list-pg-processor list-pg-processor
+                                                                                                      :read-pg-chunks    get-pg-rows
+                                                                                                      :etlp-processor    etlp-processor}
+                                                                                   :reducers         reducers
+                                                                                   :reducer          reducer
+                                                                                   :topology-builder pg-process-topology})]
+                         pg-connector)))

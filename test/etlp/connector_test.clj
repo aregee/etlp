@@ -5,7 +5,7 @@
             [cheshire.core :as json]
             [etlp.utils :refer [wrap-log wrap-record]]
             [etlp.s3 :refer [create-s3-source! create-s3-list-source!]]
-            [etlp.db :refer [create-jdbc-processor! start]]
+            [etlp.db :refer [create-postgres-source!]]
             [etlp.connector :refer [create-stdout-destination! create-connection etlp-source etlp-destination]]
             [etlp.async :refer [save-into-database]]
             [cognitect.aws.client.api :as aws]
@@ -15,16 +15,12 @@
 
 (def not-nill (comp (partial not) nil?))
 
-
 (def test-data [[[4 4 1 1] [1 2 3 4] [2 3 4 5 6 4] [1321 3214 241234 66234] [232 4214 281234 88234]]
                 [[2 2 2 2] [3 4 5 6] [3 4 5 6 7 8] [2432 4325 352345 77345] [343 5325 392345 98345]]])
-
 
 (def s3-config {:region "us-east-1"
                 :credentials {:access-key-id (System/getenv "ACCESS_KEY_ID")
                               :secret-access-key (System/getenv "SECRET_ACCESS_KEY_ID")}})
-
-
 
 (def remove-me-before-commit "hl710M/ADT10MSplit_10")
 
@@ -59,28 +55,27 @@
                         :poll-interval poll-interval
                         :offset-atom   offset-atom})
 
-(def pg-processor (create-jdbc-processor! jdbc-process-opts))
+(def etlp-pg-source {:db-config jdbc-process-opts
+                     :reducers  {:json-reducer (comp (map (fn [data]
+                                                            (let [batch (get-in data [:json_build_object "results"])]
+                                                              (json/parse-string batch true))))
+                                                     (mapcat (fn [item] item)))}
+                     :reducer :json-reducer})
 
 ;; Read all results from the channel
 
-(def connect-etlp {:xform (comp (map (fn [data]
-                                       (get-in data [:json_build_object "results"])))
-                                (mapcat (fn [item] item))
-                                (map wrap-record))
-                   :source      (start pg-processor)
+(def connect-etlp {:xform (comp (map wrap-record))
+                   :source      (create-postgres-source! etlp-pg-source)
                    :destination (create-stdout-destination! {})})
 
 (defn th [opts]
   (-> (create-connection opts)
-     .start))
+      .start))
 
-
-
-(defn ffuture [](future (.start (Thread.  #(th connect-etlp))) (.getId (Thread/currentThread))))
+(defn ffuture [] (future (.start (Thread.  #(th connect-etlp))) (.getId (Thread/currentThread))))
 
 ;; (deftest test-etlp-connection
 ;;   (is (= nil (ffuture))))
-
 
 (def mock-topo {:workflow [[:processor-1 :processor-2]
                            [:processor-2 :processor-3]
@@ -89,42 +84,41 @@
                 :entities {:processor-1 {:channel (a/chan 1)
                                          :meta    {:entity-type :processor
                                                    :processor   (fn [ch]
-                                                                 (if (instance? ManyToManyChannel ch)
-                                                                   (a/onto-chan ch test-data)
-                                                                   (a/to-chan test-data)))}}
+                                                                  (if (instance? ManyToManyChannel ch)
+                                                                    (a/onto-chan ch test-data)
+                                                                    (a/to-chan test-data)))}}
                            :processor-2 {:channel (a/chan 1)
                                          :meta    {:entity-type :processor
                                                    :processor   (fn [ch]
-                                                                 (a/pipe (ch :channel)
-                                                                         (a/chan 1 (comp
-                                                                                    (mapcat (fn [l] l))
-                                                                                    (filter not-nill)
-                                                                                    (map (fn [lst] (reduce + lst)))
-                                                                                    (map #(* 2 %))
-                                                                                    (map #(* 3 %))))))}}
+                                                                  (a/pipe (ch :channel)
+                                                                          (a/chan 1 (comp
+                                                                                     (mapcat (fn [l] l))
+                                                                                     (filter not-nill)
+                                                                                     (map (fn [lst] (reduce + lst)))
+                                                                                     (map #(* 2 %))
+                                                                                     (map #(* 3 %))))))}}
                            :processor-3 {:channel (a/chan 1)
                                          :meta    {:processor   (fn [ch] (a/pipe (ch :channel)
-                                                                               (a/chan 1 (comp
-                                                                                          (filter not-nill)
-                                                                                          (filter number?)
-                                                                                          (map #(* 2 %))))))
+                                                                                 (a/chan 1 (comp
+                                                                                            (filter not-nill)
+                                                                                            (filter number?)
+                                                                                            (map #(* 2 %))))))
                                                    :entity-type :processor}}
 
                            :processor-4 {:channel (a/chan 1)
                                          :meta    {:entity-type :processor
                                                    :processor   (fn [ch]
-                                                                 (a/pipe (ch :channel)
-                                                                         (a/chan 1 (comp
-                                                                                    (filter not-nill)
-                                                                                    (filter number?)
-                                                                                    (map #(* 3 %))))))}}
+                                                                  (a/pipe (ch :channel)
+                                                                          (a/chan 1 (comp
+                                                                                     (filter not-nill)
+                                                                                     (filter number?)
+                                                                                     (map #(* 3 %))))))}}
                            :processor-5 {:channel (a/chan 1)
                                          :meta    {:entity-type :processor
                                                    :processor   (fn [ch]
-                                                                 (if (instance? ManyToManyChannel ch)
-                                                                   ch
-                                                                   (ch :channel)))}}}})
-
+                                                                  (if (instance? ManyToManyChannel ch)
+                                                                    ch
+                                                                    (ch :channel)))}}}})
 
 ;; (deftest test-connect-processors
 ;;   (let [topology (atom mock-topo)
@@ -137,8 +131,6 @@
 ;;                  (get-in etlp-line [:processor-5 :channel]) (fn [ex]
 ;;                                                               (println (str "Execetion Caught" ex)))))))
 
-
-
 (def simple-topo {:workflow [[:processor-1 :xform-1]
                              [:xform-1 :processor-2]
                              [:processor-2 :xform-2]
@@ -147,25 +139,25 @@
                              [:xform-3 :processor-4]]
                   :entities {:processor-1 {:meta {:entity-type :processor
                                                   :processor   (fn [ch]
-                                                                (if (instance? ManyToManyChannel ch)
-                                                                  (a/onto-chan ch test-data)
-                                                                  (a/to-chan test-data)))}}
+                                                                 (if (instance? ManyToManyChannel ch)
+                                                                   (a/onto-chan ch test-data)
+                                                                   (a/to-chan test-data)))}}
                              :processor-2 {:meta {:entity-type :processor
                                                   :processor   (fn [ch]
-                                                                (if (instance? ManyToManyChannel ch)
-                                                                  ch
-                                                                  (ch :channel)))}}
+                                                                 (if (instance? ManyToManyChannel ch)
+                                                                   ch
+                                                                   (ch :channel)))}}
 
                              :processor-3 {:meta {:entity-type :processor
                                                   :processor   (fn [ch]
-                                                                (if (instance? ManyToManyChannel ch)
-                                                                  ch
-                                                                  (ch :channel)))}}
+                                                                 (if (instance? ManyToManyChannel ch)
+                                                                   ch
+                                                                   (ch :channel)))}}
                              :processor-4 {:meta {:entity-type :processor
                                                   :processor   (fn [ch]
-                                                                (if (instance? ManyToManyChannel ch)
-                                                                  ch
-                                                                  (ch :channel)))}}
+                                                                 (if (instance? ManyToManyChannel ch)
+                                                                   ch
+                                                                   (ch :channel)))}}
 
                              :xform-1 {:meta {:entity-type :xform-provider
                                               :xform       (comp
@@ -184,7 +176,6 @@
                                                             (filter number?)
                                                             (map #(* 3 %)))
                                               :entity-type :xform-provider}}}})
-
 
 ;; (deftest test-connect-xform-and-processors
 ;;   (let [topology (atom simple-topo)
