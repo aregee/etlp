@@ -3,6 +3,7 @@
             [etlp.core-test :refer [hl7-xform]]
             [clojure.pprint :refer [pprint]]
             [cheshire.core :as json]
+            [clojure.walk :refer [keywordize-keys]]
             [etlp.utils :refer [wrap-log wrap-record]]
             [etlp.s3 :refer [create-s3-source! create-s3-list-source!]]
             [etlp.db :refer [create-postgres-source!]]
@@ -22,11 +23,10 @@
                 :credentials {:access-key-id (System/getenv "ACCESS_KEY_ID")
                               :secret-access-key (System/getenv "SECRET_ACCESS_KEY_ID")}})
 
-(def remove-me-before-commit "hl710M/ADT10MSplit_10")
 
 (def etlp-s3-source {:s3-config s3-config
                      :bucket (System/getenv "ETLP_TEST_BUCKET")
-                     :prefix "hl710M/ADT10MSplit_10"
+                     :prefix "stormbreaker/hl7"
                      :reducers {:hl7-reducer
                                 (comp
                                  (hl7-xform {})
@@ -45,7 +45,7 @@
 
 (def page-size 1000)
 
-(def poll-interval 5000)
+(def poll-interval 100)
 
 (def offset-atom (atom 0))
 
@@ -55,27 +55,37 @@
                         :poll-interval poll-interval
                         :offset-atom   offset-atom})
 
+
+(def reducer-sets {:json-reducer (comp (map (fn [data]
+                                              (get-in (keywordize-keys data) [:json_build_object :results])))
+                                       (mapcat (fn [item] (keywordize-keys item))))})
+
 (def etlp-pg-source {:db-config jdbc-process-opts
-                     :reducers  {:json-reducer (comp (map (fn [data]
-                                                            (let [batch (get-in data [:json_build_object "results"])]
-                                                              (json/parse-string batch true))))
-                                                     (mapcat (fn [item] item)))}
+                     :reducers reducer-sets
                      :reducer :json-reducer})
+
 
 ;; Read all results from the channel
 
-(def connect-etlp {:xform (comp (map wrap-record))
-                   :source      (create-postgres-source! etlp-pg-source)
-                   :destination (create-stdout-destination! {})})
+(def connect-etlp-pg {:xform       (comp (map wrap-record))
+                      :threads     16
+                      :source      (create-postgres-source! etlp-pg-source)
+                      :destination (create-stdout-destination! {})})
+
+
+(def connect-etlp-s3 {:xform       (comp (map wrap-record))
+                      :threads     16
+                      :source      (create-s3-source! etlp-s3-source)
+                      :destination (create-stdout-destination! {})})
 
 (defn th [opts]
   (-> (create-connection opts)
       .start))
 
-(defn ffuture [] (future (.start (Thread.  #(th connect-etlp))) (.getId (Thread/currentThread))))
+(defn ffuture [] (future (.start (Thread.  #(th connect-etlp-pg))) (.getId (Thread/currentThread))))
 
-;; (deftest test-etlp-connection
-;;   (is (= nil (ffuture))))
+(deftest test-etlp-connection
+   (is (= nil (th connect-etlp-s3))))
 
 (def mock-topo {:workflow [[:processor-1 :processor-2]
                            [:processor-2 :processor-3]

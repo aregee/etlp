@@ -129,7 +129,7 @@
 
 (def get-s3-objects (fn [data]
                       (let [reducer (data :reducer)
-                            output (a/chan (a/buffer 200000) (mapcat (partial s3-reducible reducer)))]
+                            output (a/chan (a/buffer 2000000) (mapcat (partial s3-reducible reducer)))]
                         (get-object-pipeline-async {:client         (data :s3-client)
                                                     :bucket         (data :bucket)
                                                     :files-channel  (data :channel)

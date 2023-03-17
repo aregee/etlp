@@ -1,6 +1,5 @@
 (ns etlp.db
   (:require   [clojure.string :as str]
-              [clojure.edn :as edn]
               [clojure.tools.logging :as log]
               [etlp.airbyte :refer [EtlpAirbyteSource]]
               [clj-postgresql.core :as pg]
@@ -95,9 +94,7 @@
         (let [total (get-in (first page) [:json_build_object "total"])
               count (get-in (first page) [:json_build_object "count"])
               new-offset (+ @offset (.pageSize resource))]
-          (println total count new-offset)
           (when (< new-offset total)
-            (println ">>> should trigger poll")
             (Thread/sleep (.pollInterval resource))
             (reset! offset new-offset)
             (recur offset)))))
@@ -111,36 +108,32 @@
 
 (defn list-pg-processor [data]
   (let [opts (data :db-config)
-        jdbc-reader (create-jdbc-processor! opts)]
-    (println ">>>>invoked>>>> pg-processor " opts)
-    (a/pipe (start jdbc-reader) (data :channel))))
-
+        jdbc-reader (create-jdbc-processor! opts)
+        results (start jdbc-reader)]
+    results))
 
 (def get-pg-rows (fn [data]
-                      (let [reducer (data :reducer)
-                            output (a/chan (a/buffer 2000000) (mapcat reducer))]
-                        output)))
+                  (let [reducer (data :reducer)
+                           output (a/chan (a/buffer 2000000) (mapcat reducer))]
+                       output)))
 
-(def etlp-processor (fn [ch]
-                      (if (instance? ManyToManyChannel ch)
-                        ch
-                        (ch :channel))))
-
-
+(def etlp-processor (fn [data]
+                      (if (instance? ManyToManyChannel data)
+                        data
+                        (data :channel))))
 
 (defn pg-process-topology [{:keys [db-config processors reducers reducer]}]
   (let [entities {:list-pg-processor {:db-config db-config
                                       :channel   (a/chan (a/buffer (db-config :page-size)))
                                       :meta      {:entity-type :processor
                                                   :processor   (processors :list-pg-processor)}}
-                  :read-pg-chunks    {:reducer (reducers reducer)
-                                      :meta    {:entity-type :processor
-                                                :processor   (processors :read-pg-chunks)}}
-                  :etlp-output       {:channel (a/chan (a/buffer (db-config :page-size)))
-                                      :meta    {:entity-type :processor
-                                                :processor   (processors :etlp-processor)}}}
-        workflow [[:list-pg-processor :read-pg-chunks]
-                  [:read-pg-chunks :etlp-output]]]
+                  :xform-processor {:meta {:entity-type :xform-provider
+                                           :xform (reducers reducer)}}
+                  :etlp-output {:channel (a/chan (a/buffer (db-config :page-size)))
+                                :meta    {:entity-type :processor
+                                          :processor   (processors :etlp-processor)}}}
+        workflow [[:list-pg-processor :xform-processor]
+                  [:xform-processor :etlp-output]]]
     {:entities entities
      :workflow workflow}))
 
@@ -190,4 +183,4 @@
                                                                                    :reducers         reducers
                                                                                    :reducer          reducer
                                                                                    :topology-builder pg-process-topology})]
-                         pg-connector)))
+                                 pg-connector)))
