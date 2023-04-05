@@ -206,21 +206,15 @@
   "The production config.
   When the 'dev' alias is active, this config will not be used."
   [conf]
-  {::spec {}
+  {::destination {}
    
-   ::check {}
-   
-   ::discover {}
-   
-   ::read {}
+   ::source {}
 
-   ::write {}
+   ::connection {}
 
-   ::reducers (:reducers conf)
-   
-   ::app {:streams-config conf
-          :sinks (ig/ref ::sinks)
-          :reducers (ig/ref ::reducers)}})
+   ::mapper {}
+
+   ::app {:streams-config conf }})
 
 
 (defn directory-to-stdout-stream-processor [{:keys [config reducers reducer params source-type] :as proc-def}]

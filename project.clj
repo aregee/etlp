@@ -9,6 +9,7 @@
                  [fundingcircle/jackdaw "0.6.4"]
                  [integrant "0.8.0"]
                  [willa "0.1.1-SNAPSHOT"]
+                 [com.health-samurai/jute "0.2.0-SNAPSHOT"]
                  [com.cognitect.aws/endpoints "1.1.12.380"]
                  [com.cognitect.aws/s3 "825.2.1250.0"]
                  [clj-http "3.12.3"]
