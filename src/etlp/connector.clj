@@ -102,13 +102,16 @@
 (defrecord EtlpConnect [config source destination xform]
   EtlpConnection
   (spec [this])
+  (source [this]
+    (:source this))
+  (destination [this]
+    (:destination this))
   (start [this]
-    (let [dest (:destination this)
-          src  (:source this)
+    (let [dest (etlp-destination :write (:destination this))
+          src  (etlp-source :read (:source this))
           xf   (:xform this)
           axfd (a/pipe src (a/chan (a/sliding-buffer 2000000) xf))]
       (a/pipe axfd dest))))
-
 
 (defn log-output [data]
   (while true
@@ -165,7 +168,7 @@
 
 
 (defn create-connection [{:keys [source destination xform] :as config}]
-  (let [etlp-src     (etlp-source :read source)
-        etlp-dest    (etlp-destination :write destination)
+  (let [etlp-src     source
+        etlp-dest    destination
         connection (map->EtlpConnect {:config {:pf 1} :source etlp-src :destination etlp-dest :xform xform})]
     connection))

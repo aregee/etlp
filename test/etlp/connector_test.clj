@@ -54,9 +54,9 @@
 
 (def jdbc-process-opts {:db-spec       db-spec
                         :query         query
-                        :page-size     page-size
+                        :page-size     page-size}
                     :poll-interval poll-interval
-                        :offset-atom   offset-atom})
+                       :offset-atom   offset-atom)
 
 
 (def reducer-sets {:json-reducer (comp (map (fn [data]
@@ -90,33 +90,47 @@
 
 (defn ffuture [] (future (.start (Thread.  #(th connect-etlp-pg))) (.getId (Thread/currentThread))))
 
+(defn create-s3-processor [{:keys [config mapper]}]
+  (let [s3-source {:s3-config (config :s3)
+                   :bucket    (System/getenv "ETLP_TEST_BUCKET")
+                   :prefix    "stormbreaker/hl7"
+                   :reducers  {:hl7-reducer
+                               (comp
+                                (hl7-xform {})
+                                (map (fn [segments]
+                                       (clojure.string/join "\r" segments))))}
+                   :reducer   :hl7-reducer}
+        destination-conf {}]
+
+    {:source (create-s3-source! s3-source)
+     :destination (create-stdout-destination! destination-conf)
+     :xform (comp (map wrap-record))
+     :thrads 16}))
 
 
-(def bcda-creds {:clientId (System/getenv "BCDA_USER")
-                 :clientSecret (System/getenv "BCDA_SECRET")})
 
-(defn auth-request [{:keys [clientId clientSecret]}]
-  (let [url "https://sandbox.bcda.cms.gov/auth/token"
-        headers {"accept" "application/json"}]
-    (http/post url {:basic-auth [clientId clientSecret]
-                    :headers headers
-                    :body ""})))
-
-(def bcda-sandbox-token (fn [payload]
-                          (let [resp (json/decode  (payload :body) true)]
-                            (resp :access_token))))
-
-(defn header-opts [] {"Authorization" (str "Bearer " (bcda-sandbox-token (auth-request bcda-creds)))
-                      "accept"        "application/fhir+json"})
-
-(defn do-req [headers]
-  (a/go (let [my-resource  (->AsyncHTTPResource "https://sandbox.bcda.cms.gov/api/v1/Patient/$export" headers)
-              location-url (a/<! (.start my-resource))
-              job-status   (a/<! (.check my-resource location-url))]
-  (println job-status) ; should print "Job still running" or "Job successful" depending on the API's response
-  (when (= job-status "Job successful")
-    (let [data (a/<!(.download my-resource location-url))]
-      (pprint data))))))
+(comment
+  (def bcda-creds {:clientId (System/getenv "BCDA_USER")
+                   :clientSecret (System/getenv "BCDA_SECRET")})
+  (defn auth-request [{:keys [clientId clientSecret]}]
+    (let [url "https://sandbox.bcda.cms.gov/auth/token"
+          headers {"accept" "application/json"}]
+      (http/post url {:basic-auth [clientId clientSecret]
+                      :headers headers
+                      :body ""})))
+  (def bcda-sandbox-token (fn [payload]
+                            (let [resp (json/decode  (payload :body) true)]
+                              (resp :access_token))))
+  (defn header-opts [] {"Authorization" (str "Bearer " (bcda-sandbox-token (auth-request bcda-creds)))
+                        "accept"        "application/fhir+json"})
+  (defn do-req [headers]
+    (a/go (let [my-resource  (->AsyncHTTPResource "https://sandbox.bcda.cms.gov/api/v1/Patient/$export" headers)
+                location-url (a/<! (.start my-resource))
+                job-status   (a/<! (.check my-resource location-url))]))
+    (println job-status) ; should print "Job still running" or "Job successful" depending on the API's response
+    (when (= job-status "Job successful")
+      (let [data (a/<!(.download my-resource location-url))]
+        (pprint data)))))
 
 (deftest test-etlp-connection
    (is (= nil (th connect-etlp-s3))))

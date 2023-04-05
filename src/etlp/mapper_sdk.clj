@@ -18,16 +18,14 @@
                                   parse-decoded-yaml
                                   jt/compile)))
 
-(defn fetch-mappings [config]
-  (let [base-url (:base-url config)
-        specs (:specs config)
-        mappings (atom {})]
+(defn fetch-mappings [{:keys [base-url specs]}]
+  (let [mappings (atom {})]
     (doseq [[alias mapping-id] specs]
       (let [response (get-mapping base-url mapping-id)]
         (if (= 200 (:status response))
           (let [ resolved-jute (resolve-jute-template (json/decode (:body response) true))]
             (swap! mappings assoc alias resolved-jute))
-          (println (str "Error fetching mapping for alias: " alias ", mapping-id: " mapping-id)))))
+          (swap! mappings assoc alias (str "Error fetching mapping for alias: " alias ", mapping-id: " mapping-id)))))
     @mappings))
 
 (def config

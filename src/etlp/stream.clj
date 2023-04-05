@@ -5,6 +5,8 @@
               [jackdaw.client :as jc]
               [jackdaw.serdes.edn :refer [serde]]
               [etlp.s3 :as es3]
+              [etlp.mapper-sdk :as mapper]
+              [etlp.connector :refer [create-connection]]
               [clojure.pprint :refer [pprint]])
     (:gen-class))
 
@@ -89,9 +91,9 @@
         merged-opts (merge opts {:s3-client s3c :s3-config s3-config})
         reducer-fn ((get reducers reducer) merged-opts)
         compose-xf (comp
-                    (mapcat reducer-fn)
+                    (mapcat reducer-fn))
                     ;; (keep (fn [recrd] (println recrd)))
-                    )
+                    
         processor (bucket-reducer {:s3-client s3c :s3-config s3-config :pipeline compose-xf})]
     (processor opts)))
 
@@ -103,9 +105,9 @@
         reducer-fn ((get reducers reducer) merged-opts)
         compose-xf (comp
                     (mapcat reducer-fn)
-                    (xform-provider params)
+                    (xform-provider params))
                     ;; (keep (fn [recrd] (println recrd)))
-                    )
+                    
         processor (bucket-reducer {:s3-client s3c :s3-config s3-config :pipeline compose-xf})]
     (processor opts)))
 
@@ -201,20 +203,45 @@
    ::app {:streams-config conf
           :reducers (ig/ref ::reducers)}})
 
-
 (defn- etlp-connector
   "The production config.
   When the 'dev' alias is active, this config will not be used."
   [conf]
-  {::destination {}
-   
-   ::source {}
+  {::mapper {:mapping-specs (conf :mapping-specs)} ;; Replace with the actual function that loads mapping specs
 
-   ::connection {}
+   ::config {:conf (conf :config)}
 
-   ::mapper {}
+   ::connection {:mapper (ig/ref ::mapper)
+                 :config (ig/ref ::config)}
 
-   ::app {:streams-config conf }})
+   ::app {:connection (ig/ref ::connection)}})
+
+(defn exec-processor
+  [config]
+  (let [stream-app (ig/init (etlp-connector config))]
+    (get-in stream-app [:etlp.stream/app :connection])))
+
+(defn create-airbyte-source-processor [{:keys [process-fn etlp-config etlp-mapper] :as connector-def}]
+
+  ;; Define init method for ::mapper
+ (defmethod ig/init-key ::mapper
+   [_ {:keys [mapping-specs] :as config}]
+   (mapper/fetch-mappings mapping-specs))
+
+;; Define init method for ::connection
+ (defmethod ig/init-key ::connection
+   [_ {:keys [mapper config]}]
+   (let [proc (process-fn {:config config :mapper mapper})]
+     (create-connection proc)))
+
+;; Define init method for ::app
+ (defmethod ig/init-key ::app
+   [_ {:keys [connection] :as config}]
+   {:config config
+    :connection connection})
+
+ (exec-processor {:mapping-specs etlp-mapper
+                  :config etlp-config}))
 
 
 (defn directory-to-stdout-stream-processor [{:keys [config reducers reducer params source-type] :as proc-def}]
@@ -227,10 +254,10 @@
     (assoc opts :stream-app (fn [args] (create-stdout-stream (merge {:opts args :reducers reducers} streams-config proc-def)))))
 
   (exec-cstream (stdout-stream-conf {:s3-config (config :s3)
-                              :source-type source-type
-                              :reducers reducers
-                              :reducer reducer
-                              :params params})))
+                                     :source-type source-type
+                                     :reducers reducers
+                                     :reducer reducer
+                                     :params params})))
 
 (defn directory-to-kafka-stream-processor [{:keys [config reducers reducer topic xform-provider params source-type]}]
 
