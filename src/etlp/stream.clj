@@ -6,7 +6,7 @@
               [jackdaw.serdes.edn :refer [serde]]
               [etlp.s3 :as es3]
               [etlp.mapper-sdk :as mapper]
-              [etlp.connector :refer [create-connection]]
+              [etlp.connection :refer [create-connection]]
               [clojure.pprint :refer [pprint]])
     (:gen-class))
 
@@ -221,7 +221,10 @@
   (let [stream-app (ig/init (etlp-connector config))]
     (get-in stream-app [:etlp.stream/app :connection])))
 
-(defn create-airbyte-source-processor [{:keys [process-fn etlp-config etlp-mapper] :as connector-def}]
+(defn create-etlp-processor [{:keys [process-fn etlp-config etlp-mapper] :as connector-def}]
+
+  (defmethod ig/init-key ::config [_ {:keys [conf]}]
+    conf)
 
   ;; Define init method for ::mapper
  (defmethod ig/init-key ::mapper
@@ -255,9 +258,7 @@
 
   (exec-cstream (stdout-stream-conf {:s3-config (config :s3)
                                      :source-type source-type
-                                     :reducers reducers
-                                     :reducer reducer
-                                     :params params})))
+                                     :reducers reducers})))
 
 (defn directory-to-kafka-stream-processor [{:keys [config reducers reducer topic xform-provider params source-type]}]
 

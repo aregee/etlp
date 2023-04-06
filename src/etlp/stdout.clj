@@ -2,6 +2,7 @@
   (:require [clojure.core.async :as a]
             [clojure.pprint :refer [pprint]]
             [etlp.utils :refer [wrap-log]]
+            [etlp.connector :refer [connect]]
             [etlp.airbyte :refer [EtlpAirbyteDestination]]
             [etlp.async :refer [save-into-database]])
   (:import [clojure.core.async.impl.channels ManyToManyChannel]))

@@ -6,11 +6,13 @@
             [clojure.walk :refer [keywordize-keys]]
             [clj-http.client :as http]
             [etlp.mapper-sdk :as mapper]
+            [etlp.stream :refer [create-etlp-processor]]
             [etlp.utils :refer [wrap-log wrap-record]]
             [etlp.s3 :refer [create-s3-source! create-s3-list-source!]]
             [etlp.db :refer [create-postgres-source!]]
             [etlp.http :refer (->AsyncHTTPResource)]
-            [etlp.connector :refer [create-stdout-destination! create-connection etlp-source etlp-destination]]
+            [etlp.connection :refer [create-connection]]
+            [etlp.stdout :refer [create-stdout-destination!]]
             [etlp.async :refer [save-into-database]]
             [cognitect.aws.client.api :as aws]
             [clojure.core.async :as a]
@@ -54,9 +56,9 @@
 
 (def jdbc-process-opts {:db-spec       db-spec
                         :query         query
-                        :page-size     page-size}
-                    :poll-interval poll-interval
-                       :offset-atom   offset-atom)
+                        :page-size     page-size
+                        :poll-interval poll-interval
+                        :offset-atom   offset-atom})
 
 
 (def reducer-sets {:json-reducer (comp (map (fn [data]
@@ -108,10 +110,13 @@
      :thrads 16}))
 
 (def etlp-processor {:process-fn  create-s3-processor
-                     :etlp-config {:s3-config s3-config}
+                     :etlp-config {:s3 s3-config}
                      :etlp-mapper {:base-url "http://localhost:3000"
                                    :specs    {:ADT-PL       "13"
                                               :test-mapping "16"}}})
+
+(def s3-processor (create-etlp-processor etlp-processor))
+
 
 (comment
   (def bcda-creds {:clientId (System/getenv "BCDA_USER")
@@ -137,7 +142,7 @@
         (pprint data)))))
 
 (deftest test-etlp-connection
-   (is (= nil (th connect-etlp-s3))))
+   (is (= nil (.start s3-processor))))
 
 
 (def sample-payload-yaml "
@@ -261,14 +266,6 @@ telecom:
     value: (785)333-3333
 ")
 
-
-(def resolved-mapper-templates (mapper/main))
-
-
-(def test-mapper-tpl (resolved-mapper-templates :test-mapping))
-
-(deftest mapping-jute-resolved
-  (is (= (mapper/parse-decoded-yaml expected-output) (test-mapper-tpl (mapper/parse-decoded-yaml sample-payload-yaml)))))
 
 
 

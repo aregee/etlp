@@ -4,9 +4,25 @@
             [jute.core :as jt]
             [cheshire.core :as json]))
 
-(defn get-mapping [base-url mapping-id]
+(defn get-mapping
+  [base-url mapping-id]
   (let [url (str base-url "/mappings/" mapping-id)]
-    (http/get url)))
+    (try
+      (let [response @(http/get url)]
+        (if (= 404 (:status response))
+          (throw (ex-info "Mapping not found" {:status 404 :url url}))
+          response))
+      (catch java.net.UnknownHostException e
+        (str (ex-info "Service unreachable: Unknown host" {:error e :url url})))
+      (catch java.net.ConnectException e
+        (str (ex-info "Service unreachable: Connection failed" {:error e :url url})))
+      (catch clojure.lang.ExceptionInfo e
+        (case (:status (ex-data e))
+          404 (str (ex-info "Mapping not found" {:status 404 :url url}))
+          (str e)))
+      (catch Exception e
+        (str (ex-info "Unexpected error while fetching mapping" {:error e :url url}))))))
+
 
 (def parse-decoded-yaml (fn [template]
                          (yaml/parse-string template :keywords true)))

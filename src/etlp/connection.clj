@@ -1,9 +1,7 @@
 (ns etlp.connection
   (:require [clojure.core.async :as a]
             [clojure.pprint :refer [pprint]]
-            [etlp.utils :refer [wrap-log]]
-            [etlp.async :refer [save-into-database]])
-  (:import [clojure.core.async.impl.channels ManyToManyChannel]))
+            [etlp.utils :refer [wrap-log]]))
 
 (defmulti etlp-source (fn [op source] op))
 
@@ -18,6 +16,7 @@
 
 (defmethod etlp-source :discover [_ source]
   (.discover source))
+
 
 (defmulti etlp-destination (fn [op dest] op))
 
@@ -47,9 +46,10 @@
   (start [this]
     (let [dest (etlp-destination :write (:destination this))
           src  (etlp-source :read (:source this))
-          xf   (:xform this)
-          axfd (a/pipe src (a/chan (a/sliding-buffer 2000000) xf))]
-      (a/pipe axfd dest))))
+          xf   (:xform this)]
+      (a/pipeline 8 dest xf src false (fn [er]
+                                        (pprint er))))))
+    
 
 (defn create-connection [{:keys [source destination xform] :as config}]
   (let [etlp-src     source
