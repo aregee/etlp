@@ -107,7 +107,11 @@
      :xform (comp (map wrap-record))
      :thrads 16}))
 
-
+(def etlp-processor {:process-fn  create-s3-processor
+                     :etlp-config {:s3-config s3-config}
+                     :etlp-mapper {:base-url "http://localhost:3000"
+                                   :specs    {:ADT-PL       "13"
+                                              :test-mapping "16"}}})
 
 (comment
   (def bcda-creds {:clientId (System/getenv "BCDA_USER")
