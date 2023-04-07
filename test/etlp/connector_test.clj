@@ -11,7 +11,7 @@
             [etlp.s3 :refer [create-s3-source! create-s3-list-source!]]
             [etlp.db :refer [create-postgres-source!]]
             [etlp.http :refer (->AsyncHTTPResource)]
-            [etlp.connection :refer [create-connection]]
+            [etlp.connection :as ec :refer [create-connection]]
             [etlp.stdout :refer [create-stdout-destination!]]
             [etlp.async :refer [save-into-database]]
             [cognitect.aws.client.api :as aws]
@@ -142,7 +142,7 @@
         (pprint data)))))
 
 (deftest test-etlp-connection
-   (is (= nil (.start s3-processor))))
+   (is (= nil (ec/start s3-processor))))
 
 
 (def sample-payload-yaml "

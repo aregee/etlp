@@ -34,9 +34,10 @@
   (spec [this] "Return the spec of the source.")
   (source [this] "Soruce Connector.")
   (destination [this] "Destination Connector")
+  (stop [this])
   (start [this] "Trigger the A->B Flow using connector/connect"))
 
-(defrecord EtlpConnect [config source destination xform]
+(defrecord EtlpConnect [config source destination xform pipeline-chan]
   EtlpConnection
   (spec [this])
   (source [this]
@@ -44,12 +45,18 @@
   (destination [this]
     (:destination this))
   (start [this]
-    (let [dest (etlp-destination :write (:destination this))
-          src  (etlp-source :read (:source this))
-          xf   (:xform this)]
-      (a/pipeline 8 dest xf src false (fn [er]
-                                        (pprint er))))))
-    
+    (a/thread
+      (let [dest          (etlp-destination :write (:destination this))
+            src           (etlp-source :read (:source this))
+            xf            (:xform this)
+            transformed-src (a/pipe src (a/chan (a/buffer 40000000) xf))
+            pipeline-chan (a/pipe transformed-src dest)]
+        (assoc this :pipeline-chan pipeline-chan))))
+  (stop [this]
+    (when-let [pipeline-chan (:pipeline-chan this)]
+      (a/close! pipeline-chan)
+      (assoc this :pipeline-chan nil))))
+
 
 (defn create-connection [{:keys [source destination xform] :as config}]
   (let [etlp-src     source

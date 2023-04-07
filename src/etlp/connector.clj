@@ -34,9 +34,9 @@
 (defn- process-xform [xform input-channel]
   (try
     (if (instance? ManyToManyChannel input-channel)
-      (let [output-channel (a/chan (a/sliding-buffer 2000000) xform)]
-;        (a/pipeline 16 output-channel xform input-channel)
-        (a/pipe input-channel output-channel))
+      (let [output-channel (a/chan (a/sliding-buffer 400000))]
+        (a/pipeline 16 output-channel xform input-channel)
+        output-channel)
       input-channel)
     (catch Exception ex (println (str "Eexception Occured" ex)))))
 

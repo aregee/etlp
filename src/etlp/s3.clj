@@ -129,7 +129,7 @@
 
 (def get-s3-objects (fn [data]
                       (let [reducer (data :reducer)
-                            output (a/chan (a/buffer 2000000) (mapcat (partial s3-reducible reducer)))]
+                            output (a/chan (a/buffer 1000))]
                         (get-object-pipeline-async {:client         (data :s3-client)
                                                     :bucket         (data :bucket)
                                                     :files-channel  (data :channel)
@@ -144,6 +144,7 @@
 
 (defn s3-process-topology [{:keys [s3-config prefix bucket processors reducers reducer]}]
   (let [s3-client (s3-invoke s3-config)
+        reducing-fn (reducers reducer)
         entities  {:list-s3-objects {:s3-client s3-client
                                      :bucket    bucket
                                      :prefix    prefix
@@ -157,11 +158,15 @@
                                     :meta      {:entity-type :processor
                                                 :processor   (processors :get-s3-objects)}}
 
-                   :etlp-output {:channel (a/chan (a/buffer 10000))
+                   :reduce-s3-objects {:meta {:entity-type :xform-provider
+                                              :xform (comp (mapcat (partial s3-reducible reducing-fn)))}}
+
+                   :etlp-output {:channel (a/chan)
                                  :meta    {:entity-type :processor
                                            :processor   (processors :etlp-processor)}}}
         workflow [[:list-s3-objects :get-s3-objects]
-                  [:get-s3-objects :etlp-output]]]
+                  [:get-s3-objects :reduce-s3-objects]
+                  [:reduce-s3-objects :etlp-output]]]
 
     {:entities entities
      :workflow workflow}))

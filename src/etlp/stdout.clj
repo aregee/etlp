@@ -25,7 +25,7 @@
 (defn stdout-topology [{:keys [processors connection-state]}]
   (let [records (connection-state :records)
         count-records! (partial update-state! records)
-        entities {:etlp-input {:channel (a/chan (a/buffer 100000))
+        entities {:etlp-input {:channel (a/chan (a/buffer 10000))
                                :meta    {:entity-type :processor
                                          :processor   (processors :etlp-processor)}}
 
