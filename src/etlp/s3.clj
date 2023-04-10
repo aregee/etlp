@@ -255,3 +255,6 @@
                                                                            :reducer          reducer
                                                                            :topology-builder s3-list-topology})]
                               s3-connector)))
+
+
+;; (defrecord EtlpS3Destination [connection-state processors topology-builder config])

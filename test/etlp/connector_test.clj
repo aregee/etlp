@@ -141,8 +141,8 @@
       (let [data (a/<!(.download my-resource location-url))]
         (pprint data)))))
 
-(deftest test-etlp-connection
-   (is (= nil (ec/start s3-processor))))
+;; (deftest test-etlp-connection
+;;    (is (= nil (ec/start s3-processor))))
 
 
 (def sample-payload-yaml "

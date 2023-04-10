@@ -8,21 +8,20 @@
   [base-url mapping-id]
   (let [url (str base-url "/mappings/" mapping-id)]
     (try
-      (let [response @(http/get url)]
+      (let [response (http/get url)]
         (if (= 404 (:status response))
           (throw (ex-info "Mapping not found" {:status 404 :url url}))
           response))
       (catch java.net.UnknownHostException e
-        (str (ex-info "Service unreachable: Unknown host" {:error e :url url})))
+        (throw (ex-info "Service unreachable: Unknown host" {:error e :url url})))
       (catch java.net.ConnectException e
         (str (ex-info "Service unreachable: Connection failed" {:error e :url url})))
       (catch clojure.lang.ExceptionInfo e
         (case (:status (ex-data e))
           404 (str (ex-info "Mapping not found" {:status 404 :url url}))
-          (str e)))
+          (throw e)))
       (catch Exception e
-        (str (ex-info "Unexpected error while fetching mapping" {:error e :url url}))))))
-
+        (throw (ex-info "Unexpected error while fetching mapping" {:error e :url url}))))))
 
 (def parse-decoded-yaml (fn [template]
                          (yaml/parse-string template :keywords true)))
@@ -41,7 +40,7 @@
         (if (= 200 (:status response))
           (let [ resolved-jute (resolve-jute-template (json/decode (:body response) true))]
             (swap! mappings assoc alias resolved-jute))
-          (swap! mappings assoc alias (str "Error fetching mapping for alias: " alias ", mapping-id: " mapping-id)))))
+          (swap! mappings assoc alias (str "Error fetching mapping for alias: " alias ", mapping-id: " mapping-id ", message: " response)))))
     @mappings))
 
 (def config
