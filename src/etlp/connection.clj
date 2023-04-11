@@ -49,7 +49,7 @@
       (let [dest          (etlp-destination :write (:destination this))
             src           (etlp-source :read (:source this))
             xf            (:xform this)
-            transformed-src (a/pipe src (a/chan (a/buffer 40000000) xf))
+            transformed-src (a/pipe src (a/chan (a/buffer 10000) xf))
             pipeline-chan (a/pipe transformed-src dest)]
         (assoc this :pipeline-chan pipeline-chan))))
   (stop [this]

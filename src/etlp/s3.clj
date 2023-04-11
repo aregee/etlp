@@ -129,7 +129,7 @@
 
 (def get-s3-objects (fn [data]
                       (let [reducer (data :reducer)
-                            output (a/chan (a/buffer 1000))]
+                            output (a/chan (a/buffer 10000) (comp (mapcat (partial s3-reducible reducer))))]
                         (get-object-pipeline-async {:client         (data :s3-client)
                                                     :bucket         (data :bucket)
                                                     :files-channel  (data :channel)
@@ -148,25 +148,27 @@
         entities  {:list-s3-objects {:s3-client s3-client
                                      :bucket    bucket
                                      :prefix    prefix
-                                     :channel   (a/chan (a/buffer 1000))
+                                     :channel   (a/chan (a/buffer 16))
                                      :meta      {:entity-type :processor
                                                  :processor   (processors :list-s3-processor)}}
 
                    :get-s3-objects {:s3-client s3-client
                                     :bucket    bucket
-                                    :reducer   (reducers reducer)
+                                    :reducer   reducing-fn
                                     :meta      {:entity-type :processor
                                                 :processor   (processors :get-s3-objects)}}
 
                    :reduce-s3-objects {:meta {:entity-type :xform-provider
+                                              :threads 7
+                                              :partitions 100000
                                               :xform (comp (mapcat (partial s3-reducible reducing-fn)))}}
 
-                   :etlp-output {:channel (a/chan)
+                   :etlp-output {:channel (a/chan 10000)
                                  :meta    {:entity-type :processor
                                            :processor   (processors :etlp-processor)}}}
         workflow [[:list-s3-objects :get-s3-objects]
-                  [:get-s3-objects :reduce-s3-objects]
-                  [:reduce-s3-objects :etlp-output]]]
+;                  [:get-s3-objects :reduce-s3-objects]
+                  [:get-s3-objects :etlp-output]]]
 
     {:entities entities
      :workflow workflow}))
@@ -181,7 +183,7 @@
                                                  :processor   (processors :list-s3-processor)}}
 
 
-                   :etlp-output {:channel (a/chan (a/sliding-buffer 10000))
+                   :etlp-output {:channel (a/chan (a/buffer 10000))
                                  :meta    {:entity-type :processor
                                            :processor   (processors :etlp-processor)}}}
         workflow [[:list-s3-objects :etlp-output]]]

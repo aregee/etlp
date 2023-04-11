@@ -12,6 +12,18 @@
 
   (-> xform-provider-name :meta :xform))
 
+(defn- get-threads [node-meta]
+
+  (-> node-meta :meta :threads))
+
+(defn- chan-provider? [node]
+
+  (contains? node :channel-fn))
+
+(defn- get-partitions [node-meta]
+
+  (-> node-meta :meta :partitions))
+
 (defn- processors [processor-name]
 
   (-> processor-name :meta :processor))
@@ -24,6 +36,12 @@
 
   (= :processor (entity-type entity)))
 
+
+(defn- xform-provider? [entity]
+
+  (= :xform-provider (entity-type entity)))
+
+
 (defn- process-data [data entity]
   (let [process-fn (processors entity)]
     (try
@@ -31,13 +49,19 @@
       (catch Exception ex
         (println "Exception :: " ex)))))
 
-(defn- process-xform [xform input-channel]
+(defn- process-xform [node-data node-channel]
   (try
-    (if (instance? ManyToManyChannel input-channel)
-      (let [output-channel (a/chan (a/sliding-buffer 400000))]
-        (a/pipeline 16 output-channel xform input-channel)
-        output-channel)
-      input-channel)
+    (if (instance? ManyToManyChannel node-channel)
+      (if (chan-provider? node-data)
+        (let [xform (xform-provider node-data)
+              output-channel ((node-data :channel-fn) (get-partitions node-data))]
+          (a/pipeline-blocking (get-threads node-data) output-channel xform node-channel)
+          output-channel)
+        (let [xform (xform-provider node-data)
+              output-channel (a/chan (get-partitions node-data))]
+          (a/pipeline-blocking (get-threads node-data) output-channel xform node-channel)
+          output-channel))
+      node-channel)
     (catch Exception ex (println (str "Eexception Occured" ex)))))
 
 (defn connect [topology]
@@ -52,12 +76,12 @@
           (let [output-channel (process-data from-node-data from-node)]
             (if (xform-provider? to-node)
               (let [xform          (xform-provider to-node)
-                    output-channel (process-xform xform output-channel)]
+                    output-channel (process-xform to-node output-channel)]
                 (swap! entities assoc-in [to-entity :channel] output-channel))
               (swap! entities assoc-in [to-entity :channel] output-channel))))
         (if (xform-provider? from-node)
           (let [xform          (xform-provider from-node)
-                output-channel (process-xform xform from-node-data)]
+                output-channel (process-xform from-node from-node-data)]
             (if (processor? to-node)
               (let [output-channel (process-data output-channel to-node)]
                 (swap! entities assoc-in [to-entity :channel]  output-channel))

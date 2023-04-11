@@ -19,21 +19,28 @@
 
 (defn update-state! [rows batch]
   (swap! rows + (count batch))
-  (println (wrap-log (str "Total Count of Records:: " @rows)))
-  @rows)
+  rows)
+  
+(defn log-state [state]
+  (println (wrap-log (str "Total Count of Records:: " state))))
 
 (defn stdout-topology [{:keys [processors connection-state]}]
   (let [records (connection-state :records)
         count-records! (partial update-state! records)
-        entities {:etlp-input {:channel (a/chan (a/buffer 10000))
+        entities {:etlp-input {:channel (a/chan (a/buffer 16))
                                :meta    {:entity-type :processor
                                          :processor   (processors :etlp-processor)}}
 
-                  :etlp-output {:meta    {:entity-type :xform-provider
+                  :etlp-output {:channel-fn (fn [parts] (doto (a/chan parts) (a/close!)))
+                                :meta    {:entity-type :xform-provider
+                                          :threads 1
+                                          :partitions 16
                                           :xform   (comp
                                                     (keep (fn [x] (println x) x))
                                                     (partition-all  100)
-                                                    (keep count-records!))}}}
+                                                    (map count-records!)
+                                                    (map deref)
+                                                    (keep log-state))}}}
         workflow [[:etlp-input :etlp-output]]]
 
     {:entities entities

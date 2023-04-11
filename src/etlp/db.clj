@@ -1,7 +1,7 @@
 (ns etlp.db
   (:require   [clojure.string :as str]
               [clojure.tools.logging :as log]
-              [etlp.airbyte :refer [EtlpAirbyteSource]]
+              [etlp.airbyte :refer [EtlpAirbyteSource EtlpAirbyteDestination]]
               [clj-postgresql.core :as pg]
               [etlp.connector :refer [connect]]
               [clojure.core.async :as async :refer [<! >! <!! >!! go-loop chan close! timeout]]
@@ -12,7 +12,7 @@
 
 
 (defn create-connection [{:keys [host user dbname password port]}]
-  (delay (pg/pool :host host :user user :dbname dbname :password password :port port)))
+  (pg/pool :host host :user user :dbname dbname :password password :port port))
 
 (defn close-connection [conn]
   (pg/close! conn))
@@ -44,12 +44,10 @@
 (defn create-pg-connection [config]
   (create-connection config))
 
-
 (defn create-pg-destination [db {:keys [table specs]}]
   (delay
    (apply-schema-migration db {:table table :specs specs})
    ((pg-destination db) table)))
-
 
 (defprotocol PaginatedJDBCResource
   (execute [this])
@@ -184,3 +182,39 @@
                                                                                    :reducer          reducer
                                                                                    :topology-builder pg-process-topology})]
                                  pg-connector)))
+
+
+(defn pg-destination-topology [{:keys [processors db]}]
+  (let [db-conn  (create-connection (db :config))
+        db-sink  (create-pg-destination db-conn db)
+        entities {:etlp-input {:channel (a/chan (a/buffer 10000))
+                               :meta    {:entity-type :processor
+                                         :processor   (processors :etlp-processor)}}
+
+                  :etlp-output {
+                                :meta {:entity-type :xform-provider
+                                       :threads     1
+                                       :partitions  10000
+                                       :xform       (comp
+                                                     (partition-all 100)
+                                                     (map @db-sink)
+                                                     (keep (fn [l] (println "Record created :: " (get (first l) :id)))))}}}
+        workflow [[:etlp-input :etlp-output]]]
+
+    {:entities entities
+     :workflow workflow}))
+
+(defrecord EtlpPostgresDestination [db processors topology-builder]
+  EtlpAirbyteDestination
+  (write![this]
+    (let [topology     (topology-builder this)
+          etlp         (connect topology)
+          data-channel (get-in etlp [:etlp-input :channel])]
+      data-channel)))
+
+(def create-postgres-destination! (fn [{:keys [pg-config table specs] :as opts}]
+                                    (let [pg-destination (map->EtlpPostgresDestination {:db  {:config pg-config :table table :specs specs}
+                                                                                        :processors
+                                                                                        {:etlp-processor   etlp-processor}
+                                                                                        :topology-builder pg-destination-topology})]
+                                     pg-destination)))

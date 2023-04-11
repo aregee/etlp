@@ -92,32 +92,6 @@
 
 (defn ffuture [] (future (.start (Thread.  #(th connect-etlp-pg))) (.getId (Thread/currentThread))))
 
-(defn create-s3-processor [{:keys [config mapper]}]
-  (let [s3-source {:s3-config (config :s3)
-                   :bucket    (System/getenv "ETLP_TEST_BUCKET")
-                   :prefix    "stormbreaker/hl7"
-                   :reducers  {:hl7-reducer
-                               (comp
-                                (hl7-xform {})
-                                (map (fn [segments]
-                                       (clojure.string/join "\r" segments))))}
-                   :reducer   :hl7-reducer}
-        destination-conf {}]
-
-    {:source (create-s3-source! s3-source)
-     :destination (create-stdout-destination! destination-conf)
-     :xform (comp (map wrap-record))
-     :thrads 16}))
-
-(def etlp-processor {:process-fn  create-s3-processor
-                     :etlp-config {:s3 s3-config}
-                     :etlp-mapper {:base-url "http://localhost:3000"
-                                   :specs    {:ADT-PL       "13"
-                                              :test-mapping "16"}}})
-
-(def s3-processor (create-etlp-processor etlp-processor))
-
-
 (comment
   (def bcda-creds {:clientId (System/getenv "BCDA_USER")
                    :clientSecret (System/getenv "BCDA_SECRET")})
@@ -140,9 +114,6 @@
     (when (= job-status "Job successful")
       (let [data (a/<!(.download my-resource location-url))]
         (pprint data)))))
-
-(deftest test-etlp-connection
-   (is (= nil (ec/start s3-processor))))
 
 
 (def sample-payload-yaml "
