@@ -1,8 +1,8 @@
 (ns etlp.reducers
-  (:require   [etlp.db :as db]
-              [etlp.async :as async]
-              [cheshire.core :as json]
-              [clojure.java.io :as io])
+  (:require [cheshire.core :as json]
+            [clojure.java.io :as io]
+            [clojure.tools.logging :refer [info]]
+            [etlp.async :as async])
   (:import [java.io BufferedReader])
   (:gen-class))
 
@@ -35,14 +35,14 @@
 
 (defn file-reducer [{:keys [record-generator operation]}]
   (fn [filepath]
-    (prn filepath)
+    (info filepath)
     (eduction
      (operation (record-generator filepath))
      (read-lines filepath))))
 
-(defn parse-line [file]
+(defn parse-line [file opts]
   (fn [line]
-    (json/decode line true)))
+    (merge {:file file } (json/decode line true))))
 
 (def json-reducer
 ; JSON reducer allows to parse json files in reducible manner
@@ -52,7 +52,5 @@
   (file-reducer {:record-generator parse-line :operation map}))
 
 (defn parallel-directory-reducer [{:keys [pg-connection pipeline]}]
-  (fn [{:keys [params path]}]
-    (async/process-parallel pipeline [params] (files-processor path))
-    (when (not= pg-connection nil)
-      (db/close-connection pg-connection))))
+  (fn [{:keys [path] :as params}]
+    (async/process-parallel pipeline (files-processor path))))
