@@ -85,7 +85,7 @@ The following example demonstrates how to create an ETLP connection to read from
                     :process-fn  create-hl7-processor
                     :etlp-config {:s3 s3-config}
                     :etlp-mapper {:base-url "http://localhost:3000"
-                                  :specs    {:ADT-PL       "13"
+                                  :specs    {:adt-fhir       "13"
                                              :test-mapping "16"}}})
 
 (def hl7-processor-postgres {:name :hl7-s3-connector-postgres
@@ -93,7 +93,7 @@ The following example demonstrates how to create an ETLP connection to read from
                     :etlp-config {:s3 s3-config
                                   :db db-config}
                     :etlp-mapper {:base-url "http://localhost:3000"
-                                  :specs    {:ADT-PL       "13"
+                                  :specs    {:adt-fhir       "13"
                                              :test-mapping "16"}}})
 
 (def airbyte-hl7-s3-connector {:id 1
