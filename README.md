@@ -29,7 +29,7 @@ The following example demonstrates how to create an ETLP connection to read from
                                (comp
                                 (hl7-xform {})
                                 (map (fn [segments]
-                                       (clojure.string/join "\r" segments))))}
+                                       (s/join "\r" segments))))}
                    :reducer   :hl7-reducer}
         destination-conf {}]
 
