@@ -118,10 +118,10 @@ The following example demonstrates how to create an ETLP connection to read from
 In this example, we define two processors: one for reading from an S3 source and writing to stdout, and another for reading from the S3 source and writing to a Postgres database. The etlp-app is initialized with both processors as components, and then each processor is started with the respective command.
 
 ## Getting Started
-To get started with the ETLP library, follow the instructions in the official documentation (replace the link with the actual link to the documentation).
+To get started with the ETLP library, follow the instructions in the official documentation.
 
 ## Contributing
-We welcome contributions from the community! Please feel free to submit issues and pull requests on our GitHub repository (replace the link with the actual link to the repository).
+We welcome contributions from the community! Please feel free to submit issues and pull requests on our GitHub [repository](https://github.com/aregee/etlp).
 
 ## License
 
