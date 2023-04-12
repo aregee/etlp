@@ -45,13 +45,16 @@
   (destination [this]
     (:destination this))
   (start [this]
-    (a/thread
-      (let [dest          (etlp-destination :write (:destination this))
-            src           (etlp-source :read (:source this))
-            xf            (:xform this)
-            transformed-src (a/pipe src (a/chan (a/buffer 10000) xf))
-            pipeline-chan (a/pipe transformed-src dest)]
-        (assoc this :pipeline-chan pipeline-chan))))
+    (let [dest            (etlp-destination :write (:destination this))
+          src             (etlp-source :read (:source this))
+          src-output      (get-in src  [:etlp-output :channel])
+          src-input       (get-in src  [:etlp-input  :channel])
+          dest-input      (get-in dest [:etlp-input  :channel])
+          dest-output     (get-in dest [:etlp-output :channel])
+          xf              (:xform this)
+          transformed-src (a/pipe src-output (a/chan (a/buffer 100000) xf))
+          pipeline-chan   (a/pipe transformed-src dest-input)]
+        (assoc this :pipeline-chan dest-input)))
   (stop [this]
     (when-let [pipeline-chan (:pipeline-chan this)]
       (a/close! pipeline-chan)

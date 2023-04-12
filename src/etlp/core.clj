@@ -43,6 +43,10 @@
   (println "Should invoke with :: " options)
   (ec/start connector))
 
+(defmethod invoke-connector ::stop [{:keys [ connector options]}]
+  (println "Should stop with :: " options)
+  (ec/stop connector))
+
 (defmethod invoke-connector :default [params]
   (throw (IllegalArgumentException.
           (str "Operation " (get params :exec) " not supported"))))

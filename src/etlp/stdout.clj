@@ -22,7 +22,9 @@
   rows)
   
 (defn log-state [state]
-  (println (wrap-log (str "Total Count of Records:: " state))))
+  (let [log (wrap-log (str "Total Count of Records:: " state))]
+    (println log)
+    log))
 
 (defn stdout-topology [{:keys [processors connection-state]}]
   (let [records (connection-state :records)
@@ -31,7 +33,7 @@
                                :meta    {:entity-type :processor
                                          :processor   (processors :etlp-processor)}}
 
-                  :etlp-output {:channel-fn (fn [parts] (doto (a/chan parts) (a/close!)))
+                  :etlp-output {
                                 :meta    {:entity-type :xform-provider
                                           :threads 1
                                           :partitions 16
@@ -49,10 +51,9 @@
 (defrecord EtlpStdoutDestination [connection-state processors topology-builder]
   EtlpAirbyteDestination
   (write![this]
-    (let [topology     (topology-builder this)
-          etlp         (connect topology)
-          data-channel (get-in etlp [:etlp-input :channel])]
-      data-channel)))
+    (let [topology  (topology-builder this)
+          etlp-inst (connect topology)]
+      etlp-inst)))
 
 (def create-stdout-destination! (fn [{:keys [s3-config bucket prefix reducers reducer] :as opts}]
                                   (let [stdout-destination (map->EtlpStdoutDestination {:connection-state {:records (atom 0)}

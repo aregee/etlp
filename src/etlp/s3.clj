@@ -129,7 +129,7 @@
 
 (def get-s3-objects (fn [data]
                       (let [reducer (data :reducer)
-                            output (a/chan (a/buffer 10000) (comp (mapcat (partial s3-reducible reducer))))]
+                            output (a/chan (a/buffer 10000))]
                         (get-object-pipeline-async {:client         (data :s3-client)
                                                     :bucket         (data :bucket)
                                                     :files-channel  (data :channel)
@@ -143,32 +143,32 @@
 
 
 (defn s3-process-topology [{:keys [s3-config prefix bucket processors reducers reducer]}]
-  (let [s3-client (s3-invoke s3-config)
+  (let [s3-client   (s3-invoke s3-config)
         reducing-fn (reducers reducer)
-        entities  {:list-s3-objects {:s3-client s3-client
-                                     :bucket    bucket
-                                     :prefix    prefix
-                                     :channel   (a/chan (a/buffer 16))
-                                     :meta      {:entity-type :processor
-                                                 :processor   (processors :list-s3-processor)}}
+        entities    {:etlp-input {:s3-client s3-client
+                                  :bucket    bucket
+                                  :prefix    prefix
+                                  :channel   (a/chan (a/buffer 16))
+                                  :meta      {:entity-type :processor
+                                              :processor   (processors :list-s3-processor)}}
 
-                   :get-s3-objects {:s3-client s3-client
-                                    :bucket    bucket
-                                    :reducer   reducing-fn
-                                    :meta      {:entity-type :processor
-                                                :processor   (processors :get-s3-objects)}}
+                     :get-s3-objects {:s3-client s3-client
+                                      :bucket    bucket
+                                      :reducer   reducing-fn
+                                      :meta      {:entity-type :processor
+                                                  :processor   (processors :get-s3-objects)}}
 
-                   :reduce-s3-objects {:meta {:entity-type :xform-provider
-                                              :threads 7
-                                              :partitions 100000
-                                              :xform (comp (mapcat (partial s3-reducible reducing-fn)))}}
+                     :reduce-s3-objects {:meta {:entity-type :xform-provider
+                                                :threads     7
+                                                :partitions  100000
+                                                :xform       (comp (mapcat (partial s3-reducible reducing-fn)))}}
 
-                   :etlp-output {:channel (a/chan 10000)
-                                 :meta    {:entity-type :processor
-                                           :processor   (processors :etlp-processor)}}}
-        workflow [[:list-s3-objects :get-s3-objects]
-;                  [:get-s3-objects :reduce-s3-objects]
-                  [:get-s3-objects :etlp-output]]]
+                     :etlp-output {:channel (a/chan 10000)
+                                   :meta    {:entity-type :processor
+                                             :processor   (processors :etlp-processor)}}}
+        workflow [[:etlp-input :get-s3-objects]
+                  [:get-s3-objects :reduce-s3-objects]
+                  [:reduce-s3-objects :etlp-output]]]
 
     {:entities entities
      :workflow workflow}))
@@ -227,12 +227,8 @@
                               :properties {:data {:type "string"}}}}]})
   (read! [this]
     (let [topology     (topology-builder this)
-          etlp         (connect topology)
-          records      (atom 0)
-          reducers     (get-in this [:reducers])
-          xform        (get-in this [:reducer])
-          data-channel (get-in etlp [:etlp-output :channel])]
-     data-channel)))
+          etlp-inst         (connect topology)]
+     etlp-inst)))
 
 
 (def create-s3-source! (fn [{:keys [s3-config bucket prefix reducers reducer] :as opts}]
