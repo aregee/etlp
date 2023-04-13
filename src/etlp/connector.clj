@@ -54,11 +54,11 @@
     (if (instance? ManyToManyChannel node-channel)
       (if (chan-provider? node-data)
         (let [xform (xform-provider node-data)
-              output-channel ((node-data :channel-fn) (get-partitions node-data))]
+              output-channel ((node-data :channel-fn) (a/buffer (get-partitions node-data)))]
           (a/pipeline-blocking (get-threads node-data) output-channel xform node-channel)
           output-channel)
         (let [xform (xform-provider node-data)
-              output-channel (a/chan (get-partitions node-data))]
+              output-channel (a/chan (a/buffer (get-partitions node-data)))]
           (a/pipeline-blocking (get-threads node-data) output-channel xform node-channel)
           output-channel))
       node-channel)

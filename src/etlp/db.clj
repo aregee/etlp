@@ -185,20 +185,22 @@
 
 
 (defn pg-destination-topology [{:keys [processors db]}]
-  (let [db-conn  (create-connection (db :config))
-        db-sink  (create-pg-destination db-conn db)
-        entities {:etlp-input {:channel (a/chan (a/buffer 10000))
-                               :meta    {:entity-type :processor
-                                         :processor   (processors :etlp-processor)}}
+  (let [db-conn    (create-connection (db :config))
+        db-sink    (create-pg-destination db-conn db)
+        threads    (db :threads)
+        partitions (db :partitions)
+        entities   {:etlp-input {:channel (a/chan (a/buffer partitions))
+                                 :meta    {:entity-type :processor
+                                           :processor   (processors :etlp-processor)}}
 
-                  :etlp-output {
-                                :meta {:entity-type :xform-provider
-                                       :threads     16
-                                       :partitions  10000
-                                       :xform       (comp
-                                                     (partition-all 10000)
-                                                     (map @db-sink)
-                                                     (keep (fn [l] (println "Record created :: " (get (first l) :id)))))}}}
+                    :etlp-output {
+                                  :meta {:entity-type :xform-provider
+                                         :threads     threads
+                                         :partitions  partitions
+                                         :xform       (comp
+                                                       (partition-all partitions)
+                                                       (map @db-sink)
+                                                       (keep (fn [l] (println "Record created :: " (get (first l) :id)))))}}}
         workflow [[:etlp-input :etlp-output]]]
 
     {:entities entities
@@ -212,8 +214,12 @@
           
       etlp-inst)))
 
-(def create-postgres-destination! (fn [{:keys [pg-config table specs] :as opts}]
-                                    (let [pg-destination (map->EtlpPostgresDestination {:db  {:config pg-config :table table :specs specs}
+(def create-postgres-destination! (fn [{:keys [pg-config table specs threads partitions] :as opts}]
+                                    (let [pg-destination (map->EtlpPostgresDestination {:db  {:config pg-config
+                                                                                              :table table
+                                                                                              :specs specs
+                                                                                              :threads threads
+                                                                                              :partitions partitions}
                                                                                         :processors
                                                                                         {:etlp-processor   etlp-processor}
                                                                                         :topology-builder pg-destination-topology})]

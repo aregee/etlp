@@ -128,8 +128,8 @@
                           (data :channel)))
 
 (def get-s3-objects (fn [data]
-                      (let [reducer (data :reducer)
-                            output (a/chan (a/buffer 10000))]
+                      (let [reducing-fn (data :reducer)
+                            output (a/chan (a/buffer (data :partitions)))]
                         (get-object-pipeline-async {:client         (data :s3-client)
                                                     :bucket         (data :bucket)
                                                     :files-channel  (data :channel)
@@ -142,28 +142,29 @@
                         (ch :channel))))
 
 
-(defn s3-process-topology [{:keys [s3-config prefix bucket processors reducers reducer]}]
+(defn s3-process-topology [{:keys [s3-config prefix bucket processors reducers reducer threads partitions]}]
   (let [s3-client   (s3-invoke s3-config)
         reducing-fn (reducers reducer)
         entities    {:etlp-input {:s3-client s3-client
                                   :bucket    bucket
                                   :prefix    prefix
-                                  :channel   (a/chan (a/buffer 16))
+                                  :channel   (a/chan (a/buffer partitions))
                                   :meta      {:entity-type :processor
                                               :processor   (processors :list-s3-processor)}}
 
                      :get-s3-objects {:s3-client s3-client
                                       :bucket    bucket
+                                      :partitions partitions
                                       :reducer   reducing-fn
                                       :meta      {:entity-type :processor
                                                   :processor   (processors :get-s3-objects)}}
 
                      :reduce-s3-objects {:meta {:entity-type :xform-provider
-                                                :threads     16
-                                                :partitions  100000
+                                                :threads     threads
+                                                :partitions  partitions
                                                 :xform       (comp (mapcat (partial s3-reducible reducing-fn)))}}
 
-                     :etlp-output {:channel (a/chan 10000)
+                     :etlp-output {:channel (a/chan (a/buffer partitions))
                                    :meta    {:entity-type :processor
                                              :processor   (processors :etlp-processor)}}}
         workflow [[:etlp-input :get-s3-objects]
@@ -173,17 +174,17 @@
     {:entities entities
      :workflow workflow}))
 
-(defn s3-list-topology [{:keys [s3-config prefix bucket processors reducers reducer]}]
+(defn s3-list-topology [{:keys [s3-config prefix bucket processors reducers reducer threads partitions]}]
   (let [s3-client (s3-invoke s3-config)
         entities  {:list-s3-objects {:s3-client s3-client
                                      :bucket    bucket
                                      :prefix    prefix
-                                     :channel   (a/chan (a/buffer 1000))
+                                     :channel   (a/chan (a/buffer partitions))
                                      :meta      {:entity-type :processor
                                                  :processor   (processors :list-s3-processor)}}
 
 
-                   :etlp-output {:channel (a/chan (a/buffer 10000))
+                   :etlp-output {:channel (a/chan (a/buffer partitions))
                                  :meta    {:entity-type :processor
                                            :processor   (processors :etlp-processor)}}}
         workflow [[:list-s3-objects :etlp-output]]]
@@ -198,7 +199,7 @@
   (println (wrap-log (str "Total Count of Records:: " @rows))))
 
 
-(defrecord EtlpAirbyteS3Source [s3-config prefix bucket processors topology-builder reducers reducer]
+(defrecord EtlpAirbyteS3Source [s3-config prefix bucket processors topology-builder reducers reducer threads partitions]
   EtlpAirbyteSource
   (spec [this] {:supported-destination-streams []
                 :supported-source-streams      [{:stream_name "s3_stream"
@@ -231,10 +232,12 @@
      etlp-inst)))
 
 
-(def create-s3-source! (fn [{:keys [s3-config bucket prefix reducers reducer] :as opts}]
+(def create-s3-source! (fn [{:keys [s3-config bucket prefix reducers reducer threads partitions] :as opts}]
                         (let [s3-connector (map->EtlpAirbyteS3Source {:s3-config        s3-config
                                                                       :prefix           prefix
                                                                       :bucket           bucket
+                                                                      :threads          threads
+                                                                      :partitions       partitions
                                                                       :processors       {:list-s3-processor list-s3-processor
                                                                                          :get-s3-objects    get-s3-objects
                                                                                          :etlp-processor    etlp-processor}
@@ -243,13 +246,15 @@
                                                                       :topology-builder s3-process-topology})]
                          s3-connector)))
 
-(def create-s3-list-source! (fn [{:keys [s3-config bucket prefix reducers reducer] :as opts}]
-                             (let [s3-connector (map->EtlpAirbyteS3Source {:s3-config        s3-config
-                                                                           :prefix           prefix
-                                                                           :bucket           bucket
-                                                                           :processors       {:list-s3-processor list-s3-processor
-                                                                                              :etlp-processor    etlp-processor}
-                                                                           :reducers         reducers
-                                                                           :reducer          reducer
-                                                                           :topology-builder s3-list-topology})]
+(def create-s3-list-source! (fn [{:keys [s3-config bucket prefix reducers reducer threads partitions] :as opts}]
+                              (let [s3-connector (map->EtlpAirbyteS3Source {:s3-config        s3-config
+                                                                            :prefix           prefix
+                                                                            :bucket           bucket
+                                                                            :threads          threads
+                                                                            :partitions       partitions
+                                                                            :processors       {:list-s3-processor list-s3-processor
+                                                                                               :etlp-processor    etlp-processor}
+                                                                            :reducers         reducers
+                                                                            :reducer          reducer
+                                                                            :topology-builder s3-list-topology})]
                               s3-connector)))

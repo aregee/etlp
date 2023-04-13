@@ -8,10 +8,10 @@
                       :schema "hl7_raw" ;{"fields" [{"name" "field1" "type" "string"} {"name" "field2" "type" "integer"}] "primary_key" ["field1"]}
                       :source_stream "hl7-stream"
                       :data data}]
-    wrapped-data))
+    (json/encode wrapped-data)))
 
 (defn wrap-record [data]
-  (wrap-data data "record"))
+  (wrap-data data :record))
 
 (defn wrap-error [data]
   (wrap-data data :error))

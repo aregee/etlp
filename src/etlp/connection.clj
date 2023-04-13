@@ -45,14 +45,16 @@
   (destination [this]
     (:destination this))
   (start [this]
-    (let [dest            (etlp-destination :write (:destination this))
-          src             (etlp-source :read (:source this))
-          src-output      (get-in src  [:etlp-output :channel])
-          src-input       (get-in src  [:etlp-input  :channel])
-          dest-input      (get-in dest [:etlp-input  :channel])
-          dest-output     (get-in dest [:etlp-output :channel])
-          xf              (:xform this)
-          pipeline-chan   (a/pipeline 16 dest-input xf src-output)]
+    (let [dest          (etlp-destination :write (:destination this))
+          src           (etlp-source :read (:source this))
+          src-output    (get-in src  [:etlp-output :channel])
+          src-input     (get-in src  [:etlp-input  :channel])
+          dest-input    (get-in dest [:etlp-input  :channel])
+          dest-output   (get-in dest [:etlp-output :channel])
+          threads       (get-in this [:config :threads])
+          partitions    (get-in this [:config :partitions])
+          xf            (:xform this)
+          pipeline-chan (a/pipeline threads dest-input xf src-output)]
         (assoc this :pipeline-chan (a/merge [dest-output]))))
   (stop [this]
     (when-let [pipeline-chan (:pipeline-chan this)]
@@ -60,8 +62,12 @@
       (assoc this :pipeline-chan nil))))
 
 
-(defn create-connection [{:keys [source destination xform] :as config}]
-  (let [etlp-src     source
-        etlp-dest    destination
-        connection (map->EtlpConnect {:config {:pf 1} :source etlp-src :destination etlp-dest :xform xform})]
+(defn create-connection [{:keys [source destination xform threads partitions] :as config}]
+  (let [etlp-src   source
+        etlp-dest  destination
+        connection (map->EtlpConnect {:config      {:threads    threads
+                                                    :partitions partitions}
+                                      :source      etlp-src
+                                      :destination etlp-dest
+                                      :xform       xform})]
     connection))

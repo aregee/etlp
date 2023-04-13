@@ -27,22 +27,24 @@
     log))
 
 (defn stdout-topology [{:keys [processors connection-state]}]
-  (let [records (connection-state :records)
+  (let [records        (connection-state :records)
+        partitions     (connection-state :partitions)
+        threads        (connection-state :threads)
         count-records! (partial update-state! records)
-        entities {:etlp-input {:channel (a/chan (a/buffer 10000))
-                               :meta    {:entity-type :processor
-                                         :processor   (processors :etlp-processor)}}
+        entities       {:etlp-input {:channel (a/chan (a/buffer partitions))
+                                     :meta    {:entity-type :processor
+                                               :processor   (processors :etlp-processor)}}
 
-                  :etlp-output {
-                                :meta    {:entity-type :xform-provider
-                                          :threads 16
-                                          :partitions 10000
-                                          :xform   (comp
-                                                    (map (fn [x] (println x)))
-                                                    (partition-all  100)
-                                                    (map count-records!)
-                                                    (map deref)
-                                                    (keep log-state))}}}
+                        :etlp-output {
+                                      :meta {:entity-type :xform-provider
+                                             :threads     threads
+                                             :partitions  partitions
+                                             :xform       (comp
+                                                       (map (fn [x] (println x)))
+                                                       (partition-all  partitions)
+                                                       (map count-records!)
+                                                       (map deref)
+                                                       (keep log-state))}}}
         workflow [[:etlp-input :etlp-output]]]
 
     {:entities entities
@@ -55,8 +57,10 @@
           etlp-inst (connect topology)]
       etlp-inst)))
 
-(def create-stdout-destination! (fn [{:keys [s3-config bucket prefix reducers reducer] :as opts}]
-                                  (let [stdout-destination (map->EtlpStdoutDestination {:connection-state {:records (atom 0)}
+(def create-stdout-destination! (fn [{:keys [s3-config bucket prefix reducers reducer threads partitions] :as opts}]
+                                  (let [stdout-destination (map->EtlpStdoutDestination {:connection-state {:records (atom 0)
+                                                                                                           :threads threads
+                                                                                                           :partitions partitions}
                                                                                         :processors
                                                                                         {:etlp-processor   etlp-processor
                                                                                          :stdout-processor log-output}
