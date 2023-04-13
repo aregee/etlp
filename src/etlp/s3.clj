@@ -159,7 +159,7 @@
                                                   :processor   (processors :get-s3-objects)}}
 
                      :reduce-s3-objects {:meta {:entity-type :xform-provider
-                                                :threads     7
+                                                :threads     16
                                                 :partitions  100000
                                                 :xform       (comp (mapcat (partial s3-reducible reducing-fn)))}}
 

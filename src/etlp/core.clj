@@ -1,5 +1,6 @@
 (ns etlp.core
   (:require [clojure.string :as s]
+            [clojure.core.async :as a]
             [clojure.tools.logging :refer [debug info]]
             [etlp.stream :as es]
             [etlp.connection :as ec]
@@ -39,13 +40,30 @@
 (defmulti invoke-connector (fn [ctx]
                              (get ctx :exec)))
 
+(def start-job (fn [connection]
+                 (let [{:keys [pipeline-chan]} (ec/start connection)
+                       result                  (a/chan)]
+                   (a/go-loop []
+                     (let [v (a/<! pipeline-chan)]
+                       (if (nil? v)
+                         (a/>! result {:end true})
+                         (do
+                           (a/>! result v)
+                           (recur)))))
+                   (loop []
+                     (let [res (a/<!! result)]
+                       (if (:end res)
+                         (println "All tasks completed.")
+                         (recur))))
+                   (ec/stop connection))))
+
 (defmethod invoke-connector ::start [{:keys [ connector options]}]
   (println "Should invoke with :: " options)
-  (ec/start connector))
+  (start-job connector))
 
-(defmethod invoke-connector ::stop [{:keys [ connector options]}]
+(defmethod invoke-connector ::check [{:keys [ connector options]}]
   (println "Should stop with :: " options)
-  (ec/stop connector))
+  (ec/source connector))
 
 (defmethod invoke-connector :default [params]
   (throw (IllegalArgumentException.

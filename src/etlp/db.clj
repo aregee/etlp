@@ -193,10 +193,10 @@
 
                   :etlp-output {
                                 :meta {:entity-type :xform-provider
-                                       :threads     1
+                                       :threads     16
                                        :partitions  10000
                                        :xform       (comp
-                                                     (partition-all 100)
+                                                     (partition-all 10000)
                                                      (map @db-sink)
                                                      (keep (fn [l] (println "Record created :: " (get (first l) :id)))))}}}
         workflow [[:etlp-input :etlp-output]]]
@@ -208,9 +208,9 @@
   EtlpAirbyteDestination
   (write![this]
     (let [topology     (topology-builder this)
-          etlp         (connect topology)
-          data-channel (get-in etlp [:etlp-input :channel])]
-      data-channel)))
+          etlp-inst         (connect topology)]
+          
+      etlp-inst)))
 
 (def create-postgres-destination! (fn [{:keys [pg-config table specs] :as opts}]
                                     (let [pg-destination (map->EtlpPostgresDestination {:db  {:config pg-config :table table :specs specs}

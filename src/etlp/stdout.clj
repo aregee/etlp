@@ -29,16 +29,16 @@
 (defn stdout-topology [{:keys [processors connection-state]}]
   (let [records (connection-state :records)
         count-records! (partial update-state! records)
-        entities {:etlp-input {:channel (a/chan (a/buffer 16))
+        entities {:etlp-input {:channel (a/chan (a/buffer 10000))
                                :meta    {:entity-type :processor
                                          :processor   (processors :etlp-processor)}}
 
                   :etlp-output {
                                 :meta    {:entity-type :xform-provider
-                                          :threads 1
-                                          :partitions 16
+                                          :threads 16
+                                          :partitions 10000
                                           :xform   (comp
-                                                    (keep (fn [x] (println x) x))
+                                                    (map (fn [x] (println x)))
                                                     (partition-all  100)
                                                     (map count-records!)
                                                     (map deref)

@@ -52,9 +52,8 @@
           dest-input      (get-in dest [:etlp-input  :channel])
           dest-output     (get-in dest [:etlp-output :channel])
           xf              (:xform this)
-          transformed-src (a/pipe src-output (a/chan (a/buffer 100000) xf))
-          pipeline-chan   (a/pipe transformed-src dest-input)]
-        (assoc this :pipeline-chan dest-input)))
+          pipeline-chan   (a/pipeline 16 dest-input xf src-output)]
+        (assoc this :pipeline-chan (a/merge [dest-output]))))
   (stop [this]
     (when-let [pipeline-chan (:pipeline-chan this)]
       (a/close! pipeline-chan)

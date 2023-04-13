@@ -80,19 +80,19 @@
 (defn create-hl7-processor [{:keys [config mapper]}]
   (let [s3-source {:s3-config (config :s3)
                    :bucket    (System/getenv "ETLP_TEST_BUCKET")
-                   :prefix    "stormbreaker/small-hl7"
+                   :prefix    "stormbreaker/hl7"
                    :reducers  {:hl7-reducer
                                (comp
                                 (hl7-xform {})
                                 (map (fn [segments]
                                        (clojure.string/join "\r" segments))))}
                    :reducer   :hl7-reducer}
-        destination-conf {:pg-config db-config
+        destination-conf {:pg-config (config :db)
                           :table (table-opts :table)
                           :specs (table-opts :specs)}]
 
     {:source (create-s3-source! s3-source)
-     :destination (create-stdout-destination! destination-conf)
+     :destination (create-postgres-destination! destination-conf)
      :xform (comp (map wrap-record))
      :threads 16}))
 
@@ -103,7 +103,8 @@
 
 (def hl7-processor {:name :airbyte-hl7-s3-connector
                     :process-fn  create-hl7-processor
-                    :etlp-config {:s3 s3-config}
+                    :etlp-config {:s3 s3-config
+                                  :db db-config}
                     :etlp-mapper {:base-url "http://localhost:3000"
                                   :specs    {:ADT-PL       "13"
                                              :test-mapping "16"}}})
@@ -115,23 +116,8 @@
 (def etlp-app (etlp/init {:components [airbyte-hl7-s3-connector]}))
 
 
-;; Main thread
-(def start-job (fn []
-                 (let [{:keys [pipeline-chan]} (etlp-app {:processor :airbyte-hl7-s3-connector :params {:command :etlp.core/start
-                                                                                                        :options {:foo :bar}}})
-                       result                  (a/chan)]
-                   (a/go-loop []
-                     (a/alt!
-                       pipeline-chan ([v]
-                                      (println ">>>>TRUE:::" (nil? v))
-                                      (when-not (nil? v)
-                                        (a/>! result (str "Processed: " v))
-                                        (recur)))))
+(def options {:processor :airbyte-hl7-s3-connector :params {:command :etlp.core/start
+                                                                                                         :options {:foo :bar}}})
 
-                   (let [res (a/<!! result)]
-                       (when res
-                         (println res)
-                         (etlp-app {:processor :airbyte-hl7-s3-connector :params {:command :etlp.core/stop
-                                                                                  :options {:foo :bar}}}))))))
 
-(start-job)
+(etlp-app options)
