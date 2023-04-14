@@ -2,8 +2,8 @@
   (:require [clojure.core.async :as a]
             [clojure.pprint :refer [pprint]]
             [etlp.utils :refer [wrap-log]]
-            [etlp.connector :refer [connect]]
-            [etlp.airbyte :refer [EtlpAirbyteDestination]]
+            [etlp.connector.dag :refer [build]]
+            [etlp.connector.protocols :refer [EtlpDestination]]
             [etlp.async :refer [save-into-database]])
   (:import [clojure.core.async.impl.channels ManyToManyChannel]))
 
@@ -40,22 +40,22 @@
                                              :threads     threads
                                              :partitions  partitions
                                              :xform       (comp
-                                                       (map (fn [x] (println x)))
-                                                       (partition-all  partitions)
-                                                       (map count-records!)
-                                                       (map deref)
-                                                       (keep log-state))}}}
+                                                           (map (fn [x] (println x)))
+                                                           (partition-all  partitions)
+                                                           (map count-records!)
+                                                           (map deref)
+                                                           (keep log-state))}}}
         workflow [[:etlp-input :etlp-output]]]
 
     {:entities entities
      :workflow workflow}))
 
 (defrecord EtlpStdoutDestination [connection-state processors topology-builder]
-  EtlpAirbyteDestination
+  EtlpDestination
   (write![this]
     (let [topology  (topology-builder this)
-          etlp-inst (connect topology)]
-      etlp-inst)))
+          workflow (build topology)]
+      workflow)))
 
 (def create-stdout-destination! (fn [{:keys [s3-config bucket prefix reducers reducer threads partitions] :as opts}]
                                   (let [stdout-destination (map->EtlpStdoutDestination {:connection-state {:records (atom 0)

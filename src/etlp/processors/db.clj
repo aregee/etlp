@@ -1,9 +1,9 @@
 (ns etlp.db
   (:require   [clojure.string :as str]
               [clojure.tools.logging :as log]
-              [etlp.airbyte :refer [EtlpAirbyteSource EtlpAirbyteDestination]]
+              [etlp.connector.protocols :refer [EtlpSource EtlpDestination]]
               [clj-postgresql.core :as pg]
-              [etlp.connector :refer [connect]]
+              [etlp.connector.dag :as dag]
               [clojure.core.async :as async :refer [<! >! <!! >!! go-loop chan close! timeout]]
               [clojure.java.jdbc :as jdbc]
               [clojure.core.async :as a])
@@ -137,7 +137,7 @@
 
 
 (defrecord EtlpAirbytePostgresSource [db-config processors topology-builder reducers reducer]
-  EtlpAirbyteSource
+  EtlpSource
   (spec [this] {:supported-destination-streams []
                 :supported-source-streams      [{:stream_name "pg_stream"
                                                  :schema      {:type       "object"
@@ -165,12 +165,9 @@
                               :properties {:data {:type "string"}}}}]})
   (read! [this]
     (let [topology     (topology-builder this)
-          etlp         (connect topology)
-          records      (atom 0)
-          reducers     (get-in this [:reducers])
-          xform        (get-in this [:reducer])
-          data-channel (get-in etlp [:etlp-output :channel])]
-     data-channel)))
+          workflow         (dag/build topology)]
+          
+     workflow)))
 
 
 (def create-postgres-source! (fn [{:keys [db-config reducers reducer] :as opts}]
@@ -207,10 +204,10 @@
      :workflow workflow}))
 
 (defrecord EtlpPostgresDestination [db processors topology-builder]
-  EtlpAirbyteDestination
+  EtlpDestination
   (write![this]
     (let [topology     (topology-builder this)
-          etlp-inst         (connect topology)]
+          etlp-inst         (dag/build topology)]
           
       etlp-inst)))
 

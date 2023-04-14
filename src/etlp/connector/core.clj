@@ -1,4 +1,4 @@
-(ns etlp.connection
+(ns etlp.connector.core
   (:require [clojure.core.async :as a]
             [clojure.pprint :refer [pprint]]
             [etlp.utils :refer [wrap-log]]))
@@ -62,11 +62,10 @@
       (assoc this :pipeline-chan nil))))
 
 
-(defn create-connection [{:keys [source destination xform threads partitions] :as config}]
+(defn connect [{:keys [source destination xform threads partitions] :as config}]
   (let [etlp-src   source
         etlp-dest  destination
-        connection (map->EtlpConnect {:config      {:threads    threads
-                                                    :partitions partitions}
+        connection (map->EtlpConnect {:config      {:threads threads}
                                       :source      etlp-src
                                       :destination etlp-dest
                                       :xform       xform})]

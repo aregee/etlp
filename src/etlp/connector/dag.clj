@@ -1,4 +1,4 @@
-(ns etlp.connector
+(ns etlp.connector.dag
   (:require [clojure.core.async :as a]
             [clojure.pprint :refer [pprint]]
             [etlp.utils :refer [wrap-log]]
@@ -52,19 +52,14 @@
 (defn- process-xform [node-data node-channel]
   (try
     (if (instance? ManyToManyChannel node-channel)
-      (if (chan-provider? node-data)
-        (let [xform (xform-provider node-data)
-              output-channel ((node-data :channel-fn) (a/buffer (get-partitions node-data)))]
-          (a/pipeline-blocking (get-threads node-data) output-channel xform node-channel)
-          output-channel)
-        (let [xform (xform-provider node-data)
+       (let [xform (xform-provider node-data)
               output-channel (a/chan (a/buffer (get-partitions node-data)))]
           (a/pipeline-blocking (get-threads node-data) output-channel xform node-channel)
-          output-channel))
+          output-channel)
       node-channel)
     (catch Exception ex (println (str "Eexception Occured" ex)))))
 
-(defn connect [topology]
+(defn build [topology]
   (let [workflow (:workflow topology)
         entities (atom (:entities topology))]
     (doseq [edge workflow]

@@ -81,7 +81,7 @@
   (let [s3-source {:s3-config (config :s3)
                    :bucket    (System/getenv "ETLP_TEST_BUCKET")
                    :prefix    "stormbreaker/hl7"
-                   :threads   8
+                   :threads   1
                    :partitions 10000
                    :reducers  {:hl7-reducer
                                (comp
@@ -90,7 +90,7 @@
                                        (clojure.string/join "\r" segments))))}
                    :reducer   :hl7-reducer}
         destination-conf {:pg-config (config :db)
-                          :threads 8
+                          :threads 16
                           :partitions 10000
                           :table (table-opts :table)
                           :specs (table-opts :specs)}]
@@ -98,8 +98,8 @@
     {:source (create-s3-source! s3-source)
      :destination (create-stdout-destination! destination-conf)
      :xform (comp (map wrap-record))
-     :threads 8
-     :partitions 10000}))
+     :threads 16}))
+     
 
 (def s3-config {:region "us-east-1"
                 :credentials {:access-key-id (System/getenv "ACCESS_KEY_ID")

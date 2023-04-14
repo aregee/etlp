@@ -5,8 +5,8 @@
             [cognitect.aws.client.api :as aws]
             [cognitect.aws.credentials :as credentials]
             [clojure.pprint :refer [pprint]]
-            [etlp.connector :refer [connect]]
-            [etlp.airbyte :refer [EtlpAirbyteSource]]
+            [etlp.connector.dag :as dag]
+            [etlp.connector.protocols :refer [EtlpSource]]
             [etlp.async :refer [process-parallel]] ;; [etlp.core-test :refer [hl7-xform]]
             [etlp.reducers :refer [lines-reducible]]
             [etlp.utils :refer [wrap-error wrap-log wrap-record]])
@@ -128,8 +128,7 @@
                           (data :channel)))
 
 (def get-s3-objects (fn [data]
-                      (let [reducing-fn (data :reducer)
-                            output (a/chan (a/buffer (data :partitions)))]
+                      (let [output (data :output-channel)]
                         (get-object-pipeline-async {:client         (data :s3-client)
                                                     :bucket         (data :bucket)
                                                     :files-channel  (data :channel)
@@ -145,6 +144,7 @@
 (defn s3-process-topology [{:keys [s3-config prefix bucket processors reducers reducer threads partitions]}]
   (let [s3-client   (s3-invoke s3-config)
         reducing-fn (reducers reducer)
+        s3-reducer  (comp (mapcat (partial s3-reducible reducing-fn)))
         entities    {:etlp-input {:s3-client s3-client
                                   :bucket    bucket
                                   :prefix    prefix
@@ -152,17 +152,16 @@
                                   :meta      {:entity-type :processor
                                               :processor   (processors :list-s3-processor)}}
 
-                     :get-s3-objects {:s3-client s3-client
-                                      :bucket    bucket
-                                      :partitions partitions
-                                      :reducer   reducing-fn
-                                      :meta      {:entity-type :processor
-                                                  :processor   (processors :get-s3-objects)}}
+                     :get-s3-objects {:s3-client      s3-client
+                                      :bucket         bucket
+                                      :output-channel (a/chan (a/buffer partitions))
+                                      :meta           {:entity-type :processor
+                                                       :processor   (processors :get-s3-objects)}}
 
                      :reduce-s3-objects {:meta {:entity-type :xform-provider
                                                 :threads     threads
                                                 :partitions  partitions
-                                                :xform       (comp (mapcat (partial s3-reducible reducing-fn)))}}
+                                                :xform       s3-reducer}}
 
                      :etlp-output {:channel (a/chan (a/buffer partitions))
                                    :meta    {:entity-type :processor
@@ -200,7 +199,7 @@
 
 
 (defrecord EtlpAirbyteS3Source [s3-config prefix bucket processors topology-builder reducers reducer threads partitions]
-  EtlpAirbyteSource
+  EtlpSource
   (spec [this] {:supported-destination-streams []
                 :supported-source-streams      [{:stream_name "s3_stream"
                                                  :schema      {:type       "object"
@@ -228,8 +227,8 @@
                               :properties {:data {:type "string"}}}}]})
   (read! [this]
     (let [topology     (topology-builder this)
-          etlp-inst         (connect topology)]
-     etlp-inst)))
+          workflow         (dag/build topology)]
+     workflow)))
 
 
 (def create-s3-source! (fn [{:keys [s3-config bucket prefix reducers reducer threads partitions] :as opts}]
@@ -257,4 +256,4 @@
                                                                             :reducers         reducers
                                                                             :reducer          reducer
                                                                             :topology-builder s3-list-topology})]
-                              s3-connector)))
+                               s3-connector)))
