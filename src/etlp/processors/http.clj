@@ -1,5 +1,5 @@
 ; Namespace: etlp.processors.http
-(ns etlp.http
+(ns etlp.processors.http
   (:require [clojure.core.async :as async :refer [go-loop]]
             [cheshire.core :as json]
             [clojure.java.io :as io]
@@ -36,7 +36,7 @@
   (check [this location-url]
     (let [status (atom nil) token (:access-token this) chan (async/chan)]
       (when-not (contains? location-url :error)
-        (async/thread
+        (async/thread)
         (try
           (while (not= @status 200)
             (let [response (http/get (location-url :location) {:headers headers})]
@@ -50,7 +50,7 @@
                             (str "Job failed with status " @status)))
           (catch Exception e
             (println "Failed to check job status: " (.getMessage e))
-            (async/>!! chan {:error (.getMessage e)})))))
+            (async/>!! chan {:error (.getMessage e)}))))
       chan))
 
   (download [this location-url]

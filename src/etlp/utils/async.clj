@@ -1,7 +1,7 @@
-(ns etlp.async
+(ns etlp.utils.async
   (:require [clojure.core.async :as a]
             [clojure.tools.logging :refer [info warn]]
-            [etlp.utils :refer [wrap-error wrap-log]])
+            [etlp.utils.core :refer [wrap-error wrap-log]])
   (:import [clojure.core.async.impl.channels ManyToManyChannel])
   (:gen-class))
 

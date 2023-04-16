@@ -5,15 +5,13 @@
             [cheshire.core :as json]
             [clojure.walk :refer [keywordize-keys]]
             [clj-http.client :as http]
-            [etlp.mapper-sdk :as mapper]
-            [etlp.stream :refer [create-etlp-processor]]
-            [etlp.utils :refer [wrap-log wrap-record]]
-            [etlp.s3 :refer [create-s3-source! create-s3-list-source!]]
-            [etlp.db :refer [create-postgres-source!]]
-            [etlp.http :refer (->AsyncHTTPResource)]
-            [etlp.connection :as ec :refer [create-connection]]
-            [etlp.stdout :refer [create-stdout-destination!]]
-            [etlp.async :refer [save-into-database]]
+            [etlp.utils.mapper :as mapper]
+            [etlp.utils.core :refer [wrap-log wrap-record]]
+            [etlp.processors.s3 :refer [create-s3-source! create-s3-list-source!]]
+            [etlp.processors.db :refer [create-postgres-source!]]
+            [etlp.processors.http :refer (->AsyncHTTPResource)]
+            [etlp.processors.stdout :refer [create-stdout-destination!]]
+            [etlp.utils.async :refer [save-into-database]]
             [cognitect.aws.client.api :as aws]
             [clojure.core.async :as a]
             [clojure.java.io :as io])
@@ -69,28 +67,6 @@
                      :reducers reducer-sets
                      :reducer :json-reducer})
 
-
-;; Read all results from the channel
-
-(def connect-etlp-pg {:xform       (comp (map wrap-record))
-                      :xform-provider (fn [{:keys [mapper]}]
-                                        (comp
-                                         (map wrap-record)))
-                      :threads     16
-                      :source      (create-postgres-source! etlp-pg-source)
-                      :destination (create-stdout-destination! {})})
-
-
-(def connect-etlp-s3 {:xform       (comp (map wrap-record))
-                      :threads     16
-                      :source      (create-s3-source! etlp-s3-source)
-                      :destination (create-stdout-destination! {})})
-
-(defn th [opts]
-  (-> (create-connection opts)
-      .start))
-
-(defn ffuture [] (future (.start (Thread.  #(th connect-etlp-pg))) (.getId (Thread/currentThread))))
 
 (comment
   (def bcda-creds {:clientId (System/getenv "BCDA_USER")

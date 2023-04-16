@@ -1,4 +1,4 @@
-(ns etlp.utils
+(ns etlp.utils.core
   (:require [cheshire.core :as json]))
 
 (defn wrap-data [data type]
