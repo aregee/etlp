@@ -1,4 +1,4 @@
-(ns etlp.db
+(ns etlp.processors.db
   (:require   [clojure.string :as str]
               [clojure.tools.logging :as log]
               [etlp.connector.protocols :refer [EtlpSource EtlpDestination]]

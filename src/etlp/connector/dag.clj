@@ -1,8 +1,6 @@
 (ns etlp.connector.dag
   (:require [clojure.core.async :as a]
-            [clojure.pprint :refer [pprint]]
-            [etlp.utils :refer [wrap-log]]
-            [etlp.async :refer [save-into-database]])
+            [clojure.pprint :refer [pprint]])
   (:import [clojure.core.async.impl.channels ManyToManyChannel]))
 
 (defn- entity-type [entity]

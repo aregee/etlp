@@ -2,8 +2,7 @@
   (:require [clojure.string :as s]
             [clojure.core.async :as a]
             [clojure.tools.logging :refer [debug info]]
-            [etlp.stream :as es]
-            [etlp.utils :refer [mapper]]
+            [etlp.utils.mapper :as mapper]
             [etlp.connector.core :as ec]
             [integrant.core :as ig])
   (:gen-class))
@@ -37,8 +36,6 @@
 
 (def schema (ig-wrap-schema {}))
 
-
-
 (defn- etlp-connector
   "The production config.
   When the 'dev' alias is active, this config will not be used."
@@ -52,10 +49,10 @@
 
    ::app {:connection (ig/ref ::connection)}})
 
-(defn exec-processor
+(defn init-processor
   [config]
   (let [stream-app (ig/init (etlp-connector config))]
-    (get-in stream-app [:etlp.stream/app :connection])))
+    (get-in stream-app [:etlp.core/app :connection])))
 
 (defn create-etlp-processor [{:keys [process-fn etlp-config etlp-mapper] :as connector-def}]
 
@@ -79,8 +76,9 @@
    {:config config
     :connection connection})
 
- (exec-processor {:mapping-specs etlp-mapper
+ (init-processor {:mapping-specs etlp-mapper
                   :config etlp-config}))
+
 (defmulti invoke-connector (fn [ctx]
                              (get ctx :exec)))
 
@@ -113,7 +111,6 @@
   (throw (IllegalArgumentException.
           (str "Operation " (get params :exec) " not supported"))))
 
-
 (defn exec-processor
   "run etlp processor" [ctx {:keys [processor params]}]
   (let [executor (get-in ctx [:etlp.core/processors processor])]
@@ -128,7 +125,7 @@
 
   (defmethod ig/init-key ::processors [_ processors]
     (reduce-kv (fn [acc k ctx]
-                 (assoc acc k (es/create-etlp-processor ctx)))
+                 (assoc acc k (create-etlp-processor ctx)))
                {} processors))
 
   (reset! *etlp-app (ig/init (schema)))

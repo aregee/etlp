@@ -1,4 +1,4 @@
-(ns etlp.mapper-sdk
+(ns etlp.utils.mapper
   (:require [clj-http.client :as http]
             [yaml.core :as yaml]
             [jute.core :as jt]

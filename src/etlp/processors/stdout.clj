@@ -1,10 +1,10 @@
-(ns etlp.stdout
+(ns etlp.processors.stdout
   (:require [clojure.core.async :as a]
             [clojure.pprint :refer [pprint]]
-            [etlp.utils :refer [wrap-log]]
+            [etlp.utils.core :refer [wrap-log]]
             [etlp.connector.dag :refer [build]]
             [etlp.connector.protocols :refer [EtlpDestination]]
-            [etlp.async :refer [save-into-database]])
+            [etlp.utils.async :refer [save-into-database]])
   (:import [clojure.core.async.impl.channels ManyToManyChannel]))
 
 (defn log-output [data]

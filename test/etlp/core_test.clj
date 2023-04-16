@@ -4,11 +4,11 @@
             [clojure.core.async :as a]
             [clojure.string :as s]
             [etlp.core :as etlp]
-            [etlp.stdout :refer [create-stdout-destination!]]
-            [etlp.db :refer [create-postgres-destination!]]
-            [etlp.s3 :refer [create-s3-source!]]
+            [etlp.processors.stdout :refer [create-stdout-destination!]]
+            [etlp.processors.db :refer [create-postgres-destination!]]
+            [etlp.processors.s3 :refer [create-s3-source!]]
             [clojure.test :refer :all]
-            [etlp.utils :refer [wrap-record wrap-log]]
+            [etlp.utils.core :refer [wrap-record wrap-log]]
             [clojure.tools.logging :refer [debug]]))
 
 (defn record-start? [log-line]
@@ -82,7 +82,7 @@
                    :bucket    (System/getenv "ETLP_TEST_BUCKET")
                    :prefix    "stormbreaker/hl7"
                    :threads   1
-                   :partitions 10000
+                   :partitions 16
                    :reducers  {:hl7-reducer
                                (comp
                                 (hl7-xform {})
@@ -90,15 +90,15 @@
                                        (clojure.string/join "\r" segments))))}
                    :reducer   :hl7-reducer}
         destination-conf {:pg-config (config :db)
-                          :threads 16
-                          :partitions 10000
+                          :threads 6
+                          :partitions 16
                           :table (table-opts :table)
                           :specs (table-opts :specs)}]
 
     {:source (create-s3-source! s3-source)
      :destination (create-stdout-destination! destination-conf)
      :xform (comp (map wrap-record))
-     :threads 16}))
+     :threads 6}))
      
 
 (def s3-config {:region "us-east-1"

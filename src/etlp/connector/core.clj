@@ -1,7 +1,6 @@
 (ns etlp.connector.core
   (:require [clojure.core.async :as a]
-            [clojure.pprint :refer [pprint]]
-            [etlp.utils :refer [wrap-log]]))
+            [clojure.pprint :refer [pprint]]))
 
 (defmulti etlp-source (fn [op source] op))
 

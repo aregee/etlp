@@ -1,8 +1,8 @@
-(ns etlp.reducers
+(ns etlp.utils.reducers
   (:require [cheshire.core :as json]
             [clojure.java.io :as io]
             [clojure.tools.logging :refer [info]]
-            [etlp.async :as async])
+            [etlp.utils.async :as async])
   (:import [java.io BufferedReader])
   (:gen-class))
 
