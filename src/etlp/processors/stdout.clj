@@ -41,7 +41,7 @@
                                              :partitions  partitions
                                              :xform       (comp
                                                            (map (fn [x] (println x)))
-                                                           (partition-all  partitions)
+                                                           (partition-all  100)
                                                            (map count-records!)
                                                            (map deref)
                                                            (keep log-state))}}}

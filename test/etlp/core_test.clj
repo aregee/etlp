@@ -4,6 +4,7 @@
             [clojure.core.async :as a]
             [clojure.string :as s]
             [etlp.core :as etlp]
+            [etlp.utils.mapper :as mapper]
             [etlp.processors.stdout :refer [create-stdout-destination!]]
             [etlp.processors.db :refer [create-postgres-destination!]]
             [etlp.processors.s3 :refer [create-s3-source!]]
@@ -81,25 +82,25 @@
   (let [s3-source {:s3-config (config :s3)
                    :bucket    (System/getenv "ETLP_TEST_BUCKET")
                    :prefix    "stormbreaker/hl7"
-                   :threads   1
-                   :partitions 16
+                   :threads   3
+                   :partitions 100000
                    :reducers  {:hl7-reducer
                                (comp
                                 (hl7-xform {})
                                 (map (fn [segments]
-                                       (clojure.string/join "\r" segments))))}
+                                       (s/join "\r" segments))))}
                    :reducer   :hl7-reducer}
         destination-conf {:pg-config (config :db)
-                          :threads 6
-                          :partitions 16
+                          :threads 3
+                          :partitions 100000
                           :table (table-opts :table)
                           :specs (table-opts :specs)}]
 
     {:source (create-s3-source! s3-source)
      :destination (create-stdout-destination! destination-conf)
      :xform (comp (map wrap-record))
-     :threads 6}))
-     
+     :threads 3}))
+
 
 (def s3-config {:region "us-east-1"
                 :credentials {:access-key-id (System/getenv "ACCESS_KEY_ID")
@@ -123,4 +124,3 @@
 
 (def command {:processor :airbyte-hl7-s3-connector :params {:command :etlp.core/start
                                                             :options {:foo :bar}}})
-(etl-pipeline command)

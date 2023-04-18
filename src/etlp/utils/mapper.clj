@@ -8,7 +8,7 @@
   [base-url mapping-id]
   (let [url (str base-url "/mappings/" mapping-id)]
     (try
-      (let [response @(http/get url)]
+      (let [response (http/get url)]
         (if (= 404 (:status response))
           (throw (ex-info "Mapping not found" {:status 404 :url url}))
           response))
@@ -41,7 +41,7 @@
         (if (= 200 (:status response))
           (let [ resolved-jute (resolve-jute-template (json/decode (:body response) true))]
             (swap! mappings assoc alias resolved-jute))
-          (swap! mappings assoc alias (str "Error fetching mapping for alias: " alias ", mapping-id: " mapping-id)))))
+          (swap! mappings assoc alias (str "Error fetching mapping for alias: " alias ", mapping-id: " mapping-id ", " response)))))
     @mappings))
 
 (def config
