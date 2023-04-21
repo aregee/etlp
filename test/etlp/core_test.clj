@@ -5,6 +5,7 @@
             [clojure.string :as s]
             [etlp.core :as etlp]
             [etlp.utils.mapper :as mapper]
+            [etlp.processors.stdin :refer [create-stdin-source!]]
             [etlp.processors.stdout :refer [create-stdout-destination!]]
             [etlp.processors.db :refer [create-postgres-destination!]]
             [etlp.processors.s3 :refer [create-s3-source!]]
@@ -81,7 +82,7 @@
 (defn create-hl7-processor [{:keys [config mapper]}]
   (let [s3-source {:s3-config (config :s3)
                    :bucket    (System/getenv "ETLP_TEST_BUCKET")
-                   :prefix    "stormbreaker/hl7"
+                   :prefix    "stormbreaker/small-hl7"
                    :threads   3
                    :partitions 100000
                    :reducers  {:hl7-reducer
@@ -91,21 +92,52 @@
                                        (s/join "\r" segments))))}
                    :reducer   :hl7-reducer}
         destination-conf {:pg-config (config :db)
-                          :threads 3
+                          :threads 1
                           :partitions 100000
                           :table (table-opts :table)
                           :specs (table-opts :specs)}]
 
     {:source (create-s3-source! s3-source)
      :destination (create-stdout-destination! destination-conf)
-     :xform (comp (map wrap-record))
+     :xform (comp
+             (map wrap-record))
      :threads 3}))
+
+
+(defn create-xcom-input-processor [{:keys [config mapper]}]
+  (let [s3-source        {:threads    3
+                          :partitions 100000
+                          :reducers   {:json-reducer
+                                       (comp
+                                        (map (fn [input]
+                                               (try
+                                                 (json/decode input)
+                                                 (catch Exception e
+                                                   :etlp-invalid-json))))
+                                        (filter (fn [decoded-json]
+                                                  (not= decoded-json :etlp-invalid-json))))}
+                          :reducer    :json-reducer}
+        destination-conf {:threads    1
+                          :partitions 100000}]
+
+    {:source      (create-stdin-source! s3-source)
+     :destination (create-stdout-destination! destination-conf)
+     :xform       (comp
+;                   (remove #(= % :etlp-stdin-eof))
+                   (map wrap-record))
+     :threads     3}))
 
 
 (def s3-config {:region "us-east-1"
                 :credentials {:access-key-id (System/getenv "ACCESS_KEY_ID")
                               :secret-access-key (System/getenv "SECRET_ACCESS_KEY_ID")}})
 
+(def xcom-processor {:name :airflow-xcom-processor
+                     :process-fn  create-xcom-input-processor
+                     :etlp-config {}
+                     :etlp-mapper {:base-url "http://localhost:3000"
+                                   :specs    {:ADT-PL       "13"
+                                              :test-mapping "16"}}})
 
 (def hl7-processor {:name :airbyte-hl7-s3-connector
                     :process-fn  create-hl7-processor
@@ -119,8 +151,19 @@
                                :component :etlp.core/processors
                                :ctx hl7-processor})
 
-(def etl-pipeline (etlp/init {:components [airbyte-hl7-s3-connector]}))
+(def xcom-connector {:id 2
+                     :component :etlp.core/processors
+                     :ctx xcom-processor})
+
+
+(def etl-pipeline (etlp/init {:components [airbyte-hl7-s3-connector xcom-connector]}))
 
 
 (def command {:processor :airbyte-hl7-s3-connector :params {:command :etlp.core/start
                                                             :options {:foo :bar}}})
+
+
+(def xcom-command {:processor :airflow-xcom-processor :params {:command :etlp.core/start
+                                                               :options {:read :xcom}}})
+
+(etl-pipeline xcom-command)

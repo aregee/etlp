@@ -47,7 +47,6 @@
     (let [dest          (etlp-destination :write (:destination this))
           src           (etlp-source :read (:source this))
           src-output    (get-in src  [:etlp-output :channel])
-          src-input     (get-in src  [:etlp-input  :channel])
           dest-input    (get-in dest [:etlp-input  :channel])
           dest-output   (get-in dest [:etlp-output :channel])
           threads       (get-in this [:config :threads])
