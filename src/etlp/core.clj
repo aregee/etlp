@@ -1,6 +1,7 @@
 (ns etlp.core
   (:require [clojure.string :as s]
             [clojure.core.async :as a]
+            [clojure.pprint :refer [pprint]]
             [clojure.tools.logging :refer [debug info]]
             [etlp.utils.mapper :as mapper]
             [etlp.connector.core :as ec]
@@ -44,8 +45,11 @@
 
    ::config {:conf (conf :config)}
 
-   ::connection {:mapper (ig/ref ::mapper)
-                 :config (ig/ref ::config)}
+   ::options {:opts (conf :options)}
+
+   ::connection {:mapper  (ig/ref ::mapper)
+                 :config  (ig/ref ::config)
+                 :options (ig/ref ::options)}
 
    ::app {:connection (ig/ref ::connection)}})
 
@@ -56,8 +60,9 @@
 
 (defn create-etlp-processor [{:keys [process-fn etlp-config etlp-mapper] :as connector-def}]
 
-  (defmethod ig/init-key ::config [_ {:keys [conf]}]
-    conf)
+ (defmethod ig/init-key ::config [_ {:keys [conf]}] conf)
+
+ (defmethod ig/init-key ::options [_ {:keys [opts]}] opts)
 
   ;; Define init method for ::mapper
  (defmethod ig/init-key ::mapper
@@ -66,8 +71,8 @@
 
 ;; Define init method for ::connection
  (defmethod ig/init-key ::connection
-   [_ {:keys [mapper config]}]
-   (let [proc (process-fn {:config config :mapper mapper})]
+   [_ {:keys [mapper config options]}]
+   (let [proc (process-fn {:config config :mapper mapper :options options})]
      (ec/connect proc)))
 
 ;; Define init method for ::app
@@ -77,7 +82,8 @@
     :connection connection})
 
  (init-processor {:mapping-specs etlp-mapper
-                  :config etlp-config}))
+                  :config etlp-config
+                  :options (connector-def :options)}))
 
 (defmulti invoke-connector (fn [ctx]
                              (get ctx :exec)))
@@ -101,7 +107,8 @@
 
 (defmethod invoke-connector ::start [{:keys [ connector options]}]
   (println "Should invoke with :: " options)
-  (start-job connector))
+  (let [connection (connector options)]
+    (start-job connection)))
 
 (defmethod invoke-connector ::check [{:keys [ connector options]}]
   (println "Should stop with :: " options)
@@ -125,7 +132,8 @@
 
   (defmethod ig/init-key ::processors [_ processors]
     (reduce-kv (fn [acc k ctx]
-                 (assoc acc k (create-etlp-processor ctx)))
+                 (assoc acc k (fn [opts]
+                                (create-etlp-processor (merge {} ctx opts)))))
                {} processors))
 
   (reset! *etlp-app (ig/init (schema)))
