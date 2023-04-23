@@ -97,7 +97,7 @@
                      :get-s3-objects {:s3-client      s3-client
                                       :bucket         bucket
                                       :threads        threads
-                                      :output-channel (a/chan (a/buffer partitions) s3-reducer)
+                                      :output-channel (a/chan (a/buffer partitions))
                                       :meta           {:entity-type :processor
                                                        :processor   (processors :get-s3-objects)}}
 
@@ -110,8 +110,8 @@
                                    :meta    {:entity-type :processor
                                              :processor   (processors :etlp-processor)}}}
         workflow [[:etlp-input :get-s3-objects]
-;                  [:get-s3-objects :reduce-s3-objects]
-                  [:get-s3-objects :etlp-output]]]
+                  [:get-s3-objects :reduce-s3-objects]
+                  [:reduce-s3-objects :etlp-output]]]
 
     {:entities entities
      :workflow workflow}))
