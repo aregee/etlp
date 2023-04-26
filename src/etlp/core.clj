@@ -85,8 +85,6 @@
                   :config etlp-config
                   :options (connector-def :options)}))
 
-(defmulti invoke-connector (fn [ctx]
-                             (get ctx :exec)))
 
 (def start-job (fn [connection]
                  (let [{:keys [pipeline-chan]} (ec/start connection)
@@ -104,6 +102,9 @@
                          (println "All tasks completed.")
                          (recur))))
                    (ec/stop connection))))
+
+(defmulti invoke-connector (fn [ctx]
+                             (get ctx :exec)))
 
 (defmethod invoke-connector ::start [{:keys [ connector options]}]
   (println "Should invoke with :: " options)

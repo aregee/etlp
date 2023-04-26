@@ -128,6 +128,14 @@
      :threads     3}))
 
 
+(defn create-kstream-hl7-processor [{:keys [config mapper options topics]}])
+
+(def kafka-stream-config
+  {"application.id"            "my-cool-app"
+   "bootstrap.servers"         "localhost:9092"
+   "cache.max.bytes.buffering" "0"})
+
+
 (def s3-config {:region "us-east-1"
                 :credentials {:access-key-id (System/getenv "ACCESS_KEY_ID")
                               :secret-access-key (System/getenv "SECRET_ACCESS_KEY_ID")}})
