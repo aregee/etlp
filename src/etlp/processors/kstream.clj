@@ -81,9 +81,9 @@
 
   (if-not (get-method ig/init-key ::mapper)
   ;; Install this only if not already installed
-  (defmethod ig/init-key ::mapper
-    [_ {:keys [mapping-specs] :as config}]
-   (em/fetch-mappings mapping-specs)))
+   (defmethod ig/init-key ::mapper
+     [_ {:keys [mapping-specs] :as config}]
+    (em/fetch-mappings mapping-specs)))
 
   (if-not (get-method ig/init-key ::topology)
   ;; Install this only if not already installed
@@ -92,7 +92,6 @@
                                                :options options
                                                :topics (topics :topic-metadata)
                                                :mapper mapper}))))
-
 
   (if-not (get-method ig/init-key ::app)
   ;; Install this only if not already installed

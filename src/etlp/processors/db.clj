@@ -111,9 +111,9 @@
     results))
 
 (def get-pg-rows (fn [data]
-                  (let [reducer (data :reducer)
-                           output (a/chan (a/buffer 2000000) (mapcat reducer))]
-                       output)))
+                   (let [reducer (data :reducer)
+                         output  (a/chan (a/buffer 2000000) (mapcat reducer))]
+                        output)))
 
 (def etlp-processor (fn [data]
                       (if (instance? ManyToManyChannel data)
@@ -190,8 +190,7 @@
                                  :meta    {:entity-type :processor
                                            :processor   (processors :etlp-processor)}}
 
-                    :etlp-output {
-                                  :meta {:entity-type :xform-provider
+                    :etlp-output {:meta {:entity-type :xform-provider
                                          :threads     threads
                                          :partitions  partitions
                                          :xform       (comp
