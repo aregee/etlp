@@ -180,8 +180,8 @@
 (defn create-hl7-kafka-processor [{:keys [config mapper]}]
   (let [s3-source {:s3-config (config :s3)
                    :bucket    (System/getenv "ETLP_TEST_BUCKET")
-                   :prefix    "messages"
-                   :threads   3
+                   :prefix    "stormbreaker/hl7"
+                   :threads   1
                    :partitions 100000
                    :reducers  {:hl7-reducer
                                (comp
@@ -199,7 +199,7 @@
              (map (fn [record]
                     (let [id (rand-int 10000)]
                       [id (wrap-record record)]))))
-     :threads 3}))
+     :threads 8}))
 
 (def streaming-app (create-kstream-processor {:etlp-config {:kafka  kafka-config
                                                             :topics topics-meta}
@@ -213,14 +213,14 @@
                 :credentials {:access-key-id (System/getenv "ACCESS_KEY_ID")
                               :secret-access-key (System/getenv "SECRET_ACCESS_KEY_ID")}})
 
-(def xcom-processor {:name :airflow-xcom-processor
+(def xcom-processor {:name        :airflow-xcom-processor
                      :process-fn  create-xcom-input-processor
                      :etlp-config {}
                      :etlp-mapper {:base-url "http://localhost:3000"
                                    :specs    {:ADT-PL       "13"
                                               :test-mapping "16"}}})
 
-(def hl7-processor {:name :airbyte-hl7-s3-connector
+(def hl7-processor {:name        :airbyte-hl7-s3-connector
                     :process-fn  create-hl7-processor
                     :etlp-config {:s3 s3-config
                                   :db db-config}
@@ -228,14 +228,14 @@
                                   :specs    {:ADT-PL       "13"
                                              :test-mapping "16"}}})
 
-(def kafka-processor {:name :hl7-s3-kafka
-                    :process-fn  create-hl7-kafka-processor
-                    :etlp-config {:s3 s3-config
-                                  :kafka kafka-config
-                                  :topics {:etlp-input test-etlp-input}}
-                    :etlp-mapper {:base-url "http://localhost:3000"
-                                  :specs    {:ADT-PL       "13"
-                                             :test-mapping "16"}}})
+(def kafka-processor {:name        :hl7-s3-kafka
+                      :process-fn  create-hl7-kafka-processor
+                      :etlp-config {:s3     s3-config
+                                    :kafka  kafka-config
+                                    :topics {:etlp-input test-etlp-input}}
+                      :etlp-mapper {:base-url "http://localhost:3000"
+                                    :specs    {:ADT-PL       "13"
+                                               :test-mapping "16"}}})
 
 (def airbyte-hl7-s3-connector {:id 1
                                :component :etlp.core/processors
@@ -246,15 +246,15 @@
                      :ctx xcom-processor})
 
 (def kafka-connector {:id 3
-                     :component :etlp.core/processors
-                     :ctx kafka-processor})
+                      :component :etlp.core/processors
+                      :ctx kafka-processor})
 
 
 (def etl-pipeline (etlp/init {:components [kafka-connector]}))
 
 
 (def command {:processor :hl7-s3-kafka :params {:command :etlp.core/start
-                                                            :options {:foo :bar}}})
+                                                :options {:foo :bar}}})
 
 
 ;; (def xcom-command {:processor :airflow-xcom-processor :params {:command :etlp.core/start
