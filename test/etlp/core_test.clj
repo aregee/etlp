@@ -10,6 +10,7 @@
             [etlp.processors.db :refer [create-postgres-destination!]]
             [etlp.processors.kstream :refer [create-kstream-processor]]
             [etlp.processors.s3 :refer [create-s3-source!]]
+            [etlp.processors.kafka :refer [create-kafka-destination!]]
             [jackdaw.serdes.edn :as serdes.edn]
             [clojure.test :refer :all]
             [willa.core :as w]
@@ -136,8 +137,8 @@
   (let [entities {:topic/etlp-input  (assoc (:etlp-input topics) ::w/entity-type :topic)
                   :topic/etlp-output (assoc (:etlp-output topics) ::w/entity-type :topic)
                   :stream/etlp-input {::w/entity-type :kstream
-                                      ::w/xform       (comp (map (fn [[_ {:keys [id value]}]]
-                                                                   [_ (wrap-record value)])))}}
+                                      ::w/xform       (comp (map (fn [[_ {:keys [data]}]]
+                                                                   [_ (wrap-record data)])))}}
 
 
         ; We are good with this simple flow for now
@@ -176,11 +177,35 @@
 (def topics-meta {:etlp-input test-etlp-input
                   :etlp-output test-etlp-output})
 
+(defn create-hl7-kafka-processor [{:keys [config mapper]}]
+  (let [s3-source {:s3-config (config :s3)
+                   :bucket    (System/getenv "ETLP_TEST_BUCKET")
+                   :prefix    "messages"
+                   :threads   3
+                   :partitions 100000
+                   :reducers  {:hl7-reducer
+                               (comp
+                                (hl7-xform {})
+                                (map (fn [segments]
+                                       (s/join "\r" segments))))}
+                   :reducer   :hl7-reducer}
+        destination-conf {:etlp-config config
+                          :threads 1
+                          :partitions 100000}]
+
+    {:source (create-s3-source! s3-source)
+     :destination (create-kafka-destination! destination-conf)
+     :xform (comp
+             (map (fn [record]
+                    (let [id (rand-int 10000)]
+                      [id (wrap-record record)]))))
+     :threads 3}))
+
 (def streaming-app (create-kstream-processor {:etlp-config {:kafka  kafka-config
                                                             :topics topics-meta}
                                               :options     {}
                                               :process-fn  create-kstream-topology
-                                              :etlp-mapper {:base-url "http://192.168.1.101:3000"
+                                              :etlp-mapper {:base-url "http://localhost:3000"
                                                             :specs    {:ADT-PL       "13"
                                                                        :test-mapping "16"}}}))
 
@@ -203,6 +228,15 @@
                                   :specs    {:ADT-PL       "13"
                                              :test-mapping "16"}}})
 
+(def kafka-processor {:name :hl7-s3-kafka
+                    :process-fn  create-hl7-kafka-processor
+                    :etlp-config {:s3 s3-config
+                                  :kafka kafka-config
+                                  :topics {:etlp-input test-etlp-input}}
+                    :etlp-mapper {:base-url "http://localhost:3000"
+                                  :specs    {:ADT-PL       "13"
+                                             :test-mapping "16"}}})
+
 (def airbyte-hl7-s3-connector {:id 1
                                :component :etlp.core/processors
                                :ctx hl7-processor})
@@ -211,15 +245,19 @@
                      :component :etlp.core/processors
                      :ctx xcom-processor})
 
+(def kafka-connector {:id 3
+                     :component :etlp.core/processors
+                     :ctx kafka-processor})
 
-;(def etl-pipeline (etlp/init {:components [airbyte-hl7-s3-connector xcom-connector]}))
+
+(def etl-pipeline (etlp/init {:components [kafka-connector]}))
 
 
-(def command {:processor :airbyte-hl7-s3-connector :params {:command :etlp.core/start
+(def command {:processor :hl7-s3-kafka :params {:command :etlp.core/start
                                                             :options {:foo :bar}}})
 
 
-(def xcom-command {:processor :airflow-xcom-processor :params {:command :etlp.core/start
-                                                               :options {:read :xcom}}})
+;; (def xcom-command {:processor :airflow-xcom-processor :params {:command :etlp.core/start
+;;                                                                :options {:read :xcom}}})
 
 ;; (etl-pipeline xcom-command)

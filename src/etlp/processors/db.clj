@@ -4,9 +4,8 @@
               [etlp.connector.protocols :refer [EtlpSource EtlpDestination]]
               [clj-postgresql.core :as pg]
               [etlp.connector.dag :as dag]
-              [clojure.core.async :as async :refer [<! >! <!! >!! go-loop chan close! timeout]]
-              [clojure.java.jdbc :as jdbc]
-              [clojure.core.async :as a])
+              [clojure.core.async :as a :refer [<! >! <!! >!! go-loop chan close! timeout]]
+              [clojure.java.jdbc :as jdbc])
   (:import [clojure.core.async.impl.channels ManyToManyChannel])
   (:gen-class))
 
@@ -85,10 +84,10 @@
 
 
 (defn start [resource]
-  (let [result-chan (async/chan)]
+  (let [result-chan (a/chan)]
     (go-loop [offset (:offset-atom resource)]
       (let [page (.execute resource)]
-        (async/>! result-chan (first page))
+        (a/>! result-chan (first page))
         (let [total (get-in (first page) [:json_build_object "total"])
               count (get-in (first page) [:json_build_object "count"])
               new-offset (+ @offset (.pageSize resource))]

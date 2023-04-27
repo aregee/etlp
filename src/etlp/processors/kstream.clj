@@ -27,7 +27,7 @@
       js/start)))
 
 
-(defn create-topics! [topic-metadata client-config]
+(defn- create-topics! [topic-metadata client-config]
   (let [admin (ja/->AdminClient client-config)]
     (doto (ja/create-topics! admin (vals topic-metadata))
       (.setUncaughtExceptionHandler (reify Thread$UncaughtExceptionHandler
