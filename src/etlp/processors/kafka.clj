@@ -63,7 +63,6 @@
         kafka-sink     (publish-to-kafka! kafka-producer topic)
         threads        (config :threads)
         partitions     (config :partitions)
-        ;topics         (create-topics! (config :topics) (select-keys (config :kafka) ["bootstrap.servers"]))
         entities       {:etlp-input  {:channel (a/chan (a/buffer partitions))
                                       :meta    {:entity-type :processor
                                                 :processor   (processors :etlp-processor)}}

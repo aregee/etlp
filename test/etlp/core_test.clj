@@ -250,7 +250,7 @@
                       :ctx kafka-processor})
 
 
-(def etl-pipeline (etlp/init {:components [kafka-connector]}))
+;; (def etl-pipeline (etlp/init {:components [kafka-connector]}))
 
 
 (def command {:processor :hl7-s3-kafka :params {:command :etlp.core/start
