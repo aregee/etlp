@@ -7,7 +7,7 @@
             [jackdaw.admin :as ja]
             [willa.core :as w]
             [etlp.utils.mapper :as em]
-            ;; [willa.viz :as wv]
+            [willa.viz :as wv]
             [jackdaw.serdes.edn :as serdes.edn])
   (:gen-class))
 
@@ -16,8 +16,9 @@
   (let [builder (doto (js/streams-builder)
                   (w/build-topology! topology))]
     (if (streams-config "etlp.topology.visualise")
-      ;; (wv/view-topology topology)
-      (info "Visualizer missing")
+      (do
+        (wv/view-topology topology)
+        (info "Visualizer Launched"))
       (info "Starting Streaming App" (streams-config "application.id")))
     (doto (js/kafka-streams builder
                             streams-config)

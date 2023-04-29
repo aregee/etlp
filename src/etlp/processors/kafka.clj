@@ -63,6 +63,7 @@
         kafka-sink     (publish-to-kafka! kafka-producer topic)
         threads        (config :threads)
         partitions     (config :partitions)
+        ;; topics         (create-topics! (config :topics) (select-keys (config :kafka) ["bootstrap.servers"]))
         entities       {:etlp-input  {:channel (a/chan (a/buffer partitions))
                                       :meta    {:entity-type :processor
                                                 :processor   (processors :etlp-processor)}}
@@ -71,8 +72,10 @@
                                              :partitions  partitions
                                              :xform       (comp
                                                            (map kafka-sink)
+                                                           ;; (build-lagging-transducer 4000000)
+                                                           ;; (partition-all 10000)
                                                            (map deref)
-                                                           (keep (fn [l] (println "Record created :: "  l))))}}}
+                                                           (keep (fn [l] l)))}}}
         workflow       [[:etlp-input :etlp-output]]]
     {:entities entities
      :workflow workflow}))

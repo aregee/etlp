@@ -46,13 +46,13 @@
           (while (not= @status 200)
             (let [response (http/get (location-url :location) {:headers headers})]
               (println "Status: " (:status response) "Progress: " (get-in response [:headers "X-Progress"]))
-              (reset! status (:status response))))
+              (reset! status (:status response))
+              (Thread/sleep 5000)))
           (async/>!! chan (condp = @status
                             200 "Job successful"
                             202 "Job still running"
                             404 "Job not found"
                             (str "Job failed with status " @status)))
-          (async/close! chan)
           (catch Exception e
             (println "Failed to check job status: " (.getMessage e))
             (async/>!! chan {:error (.getMessage e)})
@@ -68,11 +68,9 @@
               (if (= (:status response) 200)
                 (reset! data (json/decode (:body response) true)))))
           (async/>!! chan @data)
-          (async/close! chan)
           (catch Exception e
             (println "Failed to download data: " (.getMessage e))
-            (async/>!! chan {:error e})
-            (async/close! chan))))
+            (async/>!! chan {:error e}))))
       chan))
 
   (download [this location-url]
@@ -87,7 +85,6 @@
                                      .getBytes
                                      ByteArrayInputStream.)))))
           (async/>!! chan @data)
-          (async/close! chan)
           (catch Exception e
             (println "Failed to download data: " (.getMessage e))
             (async/>!! chan {:error e})
