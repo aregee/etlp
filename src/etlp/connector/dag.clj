@@ -51,9 +51,8 @@
   (try
     (if (instance? ManyToManyChannel node-channel)
        (let [xform (xform-provider node-data)
-              output-channel (a/chan (a/buffer (get-partitions node-data)))]
-          (a/pipeline (get-threads node-data) output-channel xform node-channel)
-          output-channel)
+              output-channel (a/chan (a/buffer (get-partitions node-data)) xform)]
+          (a/pipe  node-channel output-channel))
       node-channel)
     (catch Exception ex (println (str "Eexception Occured" ex)))))
 

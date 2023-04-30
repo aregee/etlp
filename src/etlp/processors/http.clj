@@ -53,6 +53,7 @@
                             202 "Job still running"
                             404 "Job not found"
                             (str "Job failed with status " @status)))
+          (async/close! chan)
           (catch Exception e
             (println "Failed to check job status: " (.getMessage e))
             (async/>!! chan {:error (.getMessage e)})
@@ -61,13 +62,14 @@
 
   (list [this location-url]
     (let [data (atom nil) token (:access-token this) chan (async/chan)]
-      (async/thread
+      (async/go
         (try
           (while (nil? @data)
             (let [response (http/get (location-url :location) {:headers headers})]
               (if (= (:status response) 200)
                 (reset! data (json/decode (:body response) true)))))
           (async/>!! chan @data)
+          (async/close! chan)
           (catch Exception e
             (println "Failed to download data: " (.getMessage e))
             (async/>!! chan {:error e}))))
@@ -75,7 +77,7 @@
 
   (download [this location-url]
     (let [data (atom nil) token (:access-token this) chan (async/chan)]
-      (async/thread
+      (async/go
         (try
           (while (nil? @data)
             (let [response (http/get (location-url :location) {:headers headers})]
@@ -85,6 +87,7 @@
                                      .getBytes
                                      ByteArrayInputStream.)))))
           (async/>!! chan @data)
+          (async/close! chan)
           (catch Exception e
             (println "Failed to download data: " (.getMessage e))
             (async/>!! chan {:error e})

@@ -72,10 +72,9 @@
                                              :partitions  partitions
                                              :xform       (comp
                                                            (map kafka-sink)
-                                                           ;; (build-lagging-transducer 4000000)
-                                                           ;; (partition-all 10000)
+                                                           (build-lagging-transducer partitions)
                                                            (map deref)
-                                                           (keep (fn [l] l)))}}}
+                                                           (keep (fn [l] (println "Record created :: "  l) )))}}}
         workflow       [[:etlp-input :etlp-output]]]
     {:entities entities
      :workflow workflow}))
