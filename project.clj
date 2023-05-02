@@ -18,7 +18,7 @@
                  [org.clojure/core.async "0.4.500"]
                  [com.github.seancorfield/honeysql "2.4.1002"]
                  [org.clojure/java.jdbc "0.7.11"]]
-  :deploy-repositories {"releases" {:url "https://repo.clojars.org" :creds :gpg}}
+  :deploy-repositories {"releases" {:url "https://repo.clojars.org" :creds :auth}}
   :plugins [[lein-with-env-vars "0.2.0"]]
   :hooks [leiningen.with-env-vars/auto-inject]
   :profiles {:dev {:dependencies []}}
