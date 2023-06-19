@@ -11,7 +11,7 @@
 (defprotocol AsyncHTTP
   (start [this] "Starts a job to acquire data and returns a channel containing the Location URL")
   (check [this location-url] "Checks the status of the job using the given Location URL and returns the job status as a string")
-  (list  [this location-url] "List Http Resources")
+  (list!  [this location-url] "List Http Resources")
   (download [this location-url] "Downloads the data from the job using the given Location URL and returns it as a string"))
 
 (defrecord AsyncHTTPResource [api-url headers]
@@ -60,7 +60,7 @@
             (async/close! chan)))))
       chan))
 
-  (list [this location-url]
+  (list! [this location-url]
     (let [data (atom nil) token (:access-token this) chan (async/chan)]
       (async/go
         (try

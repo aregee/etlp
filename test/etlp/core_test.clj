@@ -7,13 +7,7 @@
             [etlp.utils.mapper :as mapper]
             [etlp.processors.stdin :refer [create-stdin-source!]]
             [etlp.processors.stdout :refer [create-stdout-destination!]]
-            [etlp.processors.db :refer [create-postgres-destination!]]
-            [etlp.processors.kstream :refer [create-kstream-processor]]
-            [etlp.processors.s3 :refer [create-s3-source!]]
-            [etlp.processors.kafka :refer [create-kafka-destination!]]
-            [jackdaw.serdes.edn :as serdes.edn]
             [clojure.test :refer :all]
-            [willa.core :as w]
             [etlp.utils.core :refer [wrap-record wrap-log]]
             [clojure.tools.logging :refer [debug]]))
 
@@ -65,47 +59,6 @@
         (cons record
               (hl7-xform ctx (nthrest s (count record)))))))))
 
-(def db-config
-  {:host (System/getenv "DB_HOSTNAME")
-   :user (System/getenv "DB_USER")
-   :dbname (System/getenv "DB_NAME")
-   :password (System/getenv "DB_PASSWORD")
-   :port 5432})
-
-(def table-opts {:table :test_hl7_etlp
-                 :specs  [[:id :serial "PRIMARY KEY"]
-                          [:type :varchar]
-                          [:version :varchar]
-                          [:source_stream :varchar]
-                          [:schema :varchar]
-                          [:timestamp :timestamp]
-                          [:data :varchar]
-                          [:created_at :timestamp
-                           "NOT NULL" "DEFAULT CURRENT_TIMESTAMP"]]})
-
-(defn create-hl7-processor [{:keys [config mapper]}]
-  (let [s3-source {:s3-config (config :s3)
-                   :bucket    (System/getenv "ETLP_TEST_BUCKET")
-                   :prefix    "stormbreaker/small-hl7"
-                   :threads   3
-                   :partitions 100000
-                   :reducers  {:hl7-reducer
-                               (comp
-                                (hl7-xform {})
-                                (map (fn [segments]
-                                       (s/join "\r" segments))))}
-                   :reducer   :hl7-reducer}
-        destination-conf {:pg-config (config :db)
-                          :threads 1
-                          :partitions 100000
-                          :table (table-opts :table)
-                          :specs (table-opts :specs)}]
-
-    {:source (create-s3-source! s3-source)
-     :destination (create-stdout-destination! destination-conf)
-     :xform (comp
-             (map wrap-record))
-     :threads 3}))
 
 
 (defn create-xcom-input-processor [{:keys [config mapper]}]
@@ -131,88 +84,6 @@
                    (map wrap-record))
      :threads     3}))
 
-(defn create-kstream-topology
-  "Takes topic metadata and returns a function that builds the topology."
-  [{:keys [config mapper options topics]}]
-  (let [entities {:topic/etlp-input  (assoc (:etlp-input topics) ::w/entity-type :topic)
-                  :topic/etlp-output (assoc (:etlp-output topics) ::w/entity-type :topic)
-                  :stream/etlp-input {::w/entity-type :kstream
-                                      ::w/xform       (comp (map (fn [[_ {:keys [data]}]]
-                                                                   [_ (wrap-record data)])))}}
-
-
-        ; We are good with this simple flow for now
-        workflow [[:topic/etlp-input :stream/etlp-input]
-                  [:stream/etlp-input :topic/etlp-output]]]
-
-    {:workflow workflow
-     :entities entities
-     :joins    {}}))
-
-(def kafka-config
-  {"application.id" "1-etlp-kafka-stream"
-   "bootstrap.servers" (or (System/getenv "BOOTSTRAP_SERVERS") "localhost:9092,localhost:9093,localhost:9094")
-   "default.key.serde" "jackdaw.serdes.EdnSerde"
-   "default.value.serde" "jackdaw.serdes.EdnSerde"
-   "compression.type" "gzip"
-;   "max.request.size" "20971520"
-   "num.stream.threads" (or (System/getenv "NUM_STREAM_THREADS") "1")
-   "cache.max.bytes.buffering" "0"})
-
-(def test-etlp-input
-  {:topic-name         "hl7-message"
-   :replication-factor 1
-   :partition-count    1
-   :key-serde          (serdes.edn/serde)
-   :value-serde        (serdes.edn/serde)})
-
-
-(def test-etlp-output
-  {:topic-name         "output-topic"
-   :replication-factor 1
-   :partition-count    1
-   :key-serde          (serdes.edn/serde)
-   :value-serde        (serdes.edn/serde)})
-
-(def topics-meta {:etlp-input test-etlp-input
-                  :etlp-output test-etlp-output})
-
-(defn create-hl7-kafka-processor [{:keys [config mapper]}]
-  (let [s3-source {:s3-config (config :s3)
-                   :bucket    (System/getenv "ETLP_TEST_BUCKET")
-                   :prefix    "stormbreaker/hl7"
-                   :threads   1
-                   :partitions 100000
-                   :reducers  {:hl7-reducer
-                               (comp
-                                (hl7-xform {})
-                                (map (fn [segments]
-                                       (s/join "\r" segments))))}
-                   :reducer   :hl7-reducer}
-        destination-conf {:etlp-config config
-                          :threads 1
-                          :partitions 100000}]
-
-    {:source (create-s3-source! s3-source)
-     :destination (create-kafka-destination! destination-conf)
-     :xform (comp
-             (map (fn [record]
-                    (let [id (rand-int 10000)]
-                      [id (wrap-record record)]))))
-     :threads 8}))
-
-(def streaming-app (create-kstream-processor {:etlp-config {:kafka  kafka-config
-                                                            :topics topics-meta}
-                                              :options     {}
-                                              :process-fn  create-kstream-topology
-                                              :etlp-mapper {:base-url "http://localhost:3000"
-                                                            :specs    {:ADT-PL       "13"
-                                                                       :test-mapping "16"}}}))
-
-(def s3-config {:region "us-east-1"
-                :credentials {:access-key-id (System/getenv "ACCESS_KEY_ID")
-                              :secret-access-key (System/getenv "SECRET_ACCESS_KEY_ID")}})
-
 (def xcom-processor {:name        :airflow-xcom-processor
                      :process-fn  create-xcom-input-processor
                      :etlp-config {}
@@ -220,34 +91,10 @@
                                    :specs    {:ADT-PL       "13"
                                               :test-mapping "16"}}})
 
-(def hl7-processor {:name        :airbyte-hl7-s3-connector
-                    :process-fn  create-hl7-processor
-                    :etlp-config {:s3 s3-config
-                                  :db db-config}
-                    :etlp-mapper {:base-url "http://localhost:3000"
-                                  :specs    {:ADT-PL       "13"
-                                             :test-mapping "16"}}})
-
-(def kafka-processor {:name        :hl7-s3-kafka
-                      :process-fn  create-hl7-kafka-processor
-                      :etlp-config {:s3     s3-config
-                                    :kafka  kafka-config
-                                    :topics {:etlp-input test-etlp-input}}
-                      :etlp-mapper {:base-url "http://localhost:3000"
-                                    :specs    {:ADT-PL       "13"
-                                               :test-mapping "16"}}})
-
-(def airbyte-hl7-s3-connector {:id 1
-                               :component :etlp.core/processors
-                               :ctx hl7-processor})
 
 (def xcom-connector {:id 2
                      :component :etlp.core/processors
                      :ctx xcom-processor})
-
-(def kafka-connector {:id 3
-                      :component :etlp.core/processors
-                      :ctx kafka-processor})
 
 
 ;; (def etl-pipeline (etlp/init {:components [kafka-connector]}))
@@ -258,6 +105,5 @@
 
 
 ;; (def xcom-command {:processor :airflow-xcom-processor :params {:command :etlp.core/start
-;;                                                                :options {:read :xcom}}})
 
 ;; (etl-pipeline xcom-command)

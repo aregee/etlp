@@ -6,13 +6,11 @@
             [clojure.walk :refer [keywordize-keys]]
             [clj-http.client :as http]
             [etlp.utils.mapper :as mapper]
+            [etlp.connector.dag :as dag]
             [etlp.utils.core :refer [wrap-log wrap-record]]
-            [etlp.processors.s3 :refer [create-s3-source! create-s3-list-source!]]
-            [etlp.processors.db :refer [create-postgres-source!]]
             [etlp.processors.http :refer (->AsyncHTTPResource)]
             [etlp.processors.stdout :refer [create-stdout-destination!]]
             [etlp.utils.async :refer [save-into-database]]
-            [cognitect.aws.client.api :as aws]
             [clojure.core.async :as a]
             [clojure.java.io :as io])
   (:import [clojure.core.async.impl.channels ManyToManyChannel]))
@@ -90,6 +88,7 @@
     (when (= job-status "Job successful")
       (let [data (a/<!(.download my-resource location-url))]
         (pprint data)))))
+
 
 
 (def sample-payload-yaml "
@@ -213,15 +212,19 @@ telecom:
     value: (785)333-3333
 ")
 
-
-
-
-
+(defmacro def-dag-topology-test [name topology expected-output]
+  `(clojure.test/deftest ~name
+     (let [mock-topology# (atom ~topology)
+           etlp-dag# (dag/build @mock-topology#)
+           results-chan# (a/chan)
+           error-chan# (a/chan)]
+       (let [results# (a/<!! (a/into [] (get-in etlp-dag# [:etlp-output :channel])))]
+         (is (= results# ~expected-output))))))
 
 (def mock-topo {:workflow [[:processor-1 :processor-2]
                            [:processor-2 :processor-3]
                            [:processor-3 :processor-4]
-                           [:processor-4 :processor-5]]
+                           [:processor-4 :etlp-output]]
                 :entities {:processor-1 {:channel (a/chan 1)
                                          :meta    {:entity-type :processor
                                                    :processor   (fn [ch]
@@ -254,30 +257,21 @@ telecom:
                                                                                      (filter not-nill)
                                                                                      (filter number?)
                                                                                      (map #(* 3 %))))))}}
-                           :processor-5 {:channel (a/chan 1)
-                                         :meta    {:entity-type :processor
+                           :etlp-output {:meta    {:entity-type :processor
                                                    :processor   (fn [ch]
                                                                   (if (instance? ManyToManyChannel ch)
                                                                     ch
                                                                     (ch :channel)))}}}})
 
-;; (deftest test-connect-processors
-;;   (let [topology (atom mock-topo)
-;;         entities (@topology :entities)
-;;         etlp-line (connector/connect @topology)]
-;;     (clojure.pprint/pprint "Case One Begins")
-;;     (a/<!!
-;;      (a/pipeline 1 (doto (a/chan) (a/close!))
-;;                  (map (fn [d] (println "Invoked from pipeline" d) d))
-;;                  (get-in etlp-line [:processor-5 :channel]) (fn [ex]
-;;                                                               (println (str "Execetion Caught" ex)))))))
+
+
 
 (def simple-topo {:workflow [[:processor-1 :xform-1]
                              [:xform-1 :processor-2]
                              [:processor-2 :xform-2]
                              [:xform-2 :processor-3]
                              [:processor-3 :xform-3]
-                             [:xform-3 :processor-4]]
+                             [:xform-3 :etlp-output]]
                   :entities {:processor-1 {:meta {:entity-type :processor
                                                   :processor   (fn [ch]
                                                                  (if (instance? ManyToManyChannel ch)
@@ -294,46 +288,49 @@ telecom:
                                                                  (if (instance? ManyToManyChannel ch)
                                                                    ch
                                                                    (ch :channel)))}}
-                             :processor-4 {:meta {:entity-type :processor
+                             :etlp-output {:meta {:entity-type :processor
                                                   :processor   (fn [ch]
                                                                  (if (instance? ManyToManyChannel ch)
                                                                    ch
                                                                    (ch :channel)))}}
 
-                             :xform-1 {:meta {:entity-type :xform-provider
+                             :xform-1 {:meta {:partitions  16
+                                              :entity-type :xform-provider
                                               :xform       (comp
                                                             (mapcat (fn [l] l))
                                                             (filter not-nill)
                                                             (map (fn [lst] (reduce + lst)))
                                                             (map #(* 2 %))
                                                             (map #(* 3 %)))}}
-                             :xform-2 {:meta {:xform       (comp
+                             :xform-2 {:meta {:partitions  16
+                                              :xform       (comp
                                                             (filter not-nill)
                                                             (filter number?)
                                                             (map #(* 2 %)))
                                               :entity-type :xform-provider}}
-                             :xform-3 {:meta {:xform       (comp
+                             :xform-3 {:meta {:partitions  16
+                                              :xform       (comp
                                                             (filter not-nill)
                                                             (filter number?)
                                                             (map #(* 3 %)))
                                               :entity-type :xform-provider}}}})
 
-;; (deftest test-connect-xform-and-processors
-;;   (let [topology (atom simple-topo)
-;;         etlp-line (connector/connect @topology)]
-;;     (clojure.pprint/pprint "Case 2 begins")
-;;     (a/<!!
-;;      (a/pipeline 1 (doto (a/chan) (a/close!))
-;;                  (map (fn [d] (println "Invoked from ETLP pipeline ::\n" d) d))
-;;                  (get-in etlp-line [:processor-4 :channel]) (fn [ex]
-;;                                                               (println (str "Execetion Caught" ex)))))))
 
-(comment
-  (doseq [path (:workflow {:topology mock-topo})]
-    (let [[input-key output-key] path
-          input-chan (get-in {} [input-key :channel])
-          output-chan (get-in {} [output-key :channel])]
-        ;; (pprint (nil? input-chan))
-        ;; (pprint (nil? output-chan))
-      (if (and (not-nill input-chan) (not-nill output-chan))
-        (a/pipe input-chan output-chan)))))
+(def bad-topology {:workflow [[:etlp-input :etlp-output]]
+               :entities {:etlp-input  {:meta {:entity-type :processor
+                                               :processor   (fn [data]
+                                                              (if (instance? ManyToManyChannel data)
+                                                                (a/onto-chan data [])
+                                                                (a/to-chan [1 2 3])))}}
+                          :etlp-output {:meta {:entity-type :xform-provider
+                                               :processor   (fn [data]
+                                                              (if (instance? ManyToManyChannel data)
+                                                                data
+                                                                (data :channel)))}}}})
+
+
+(def-dag-topology-test test-complex-transform mock-topo [360 360 864 11232108 13460904 288 648 1188 15712092 17868888])
+
+(def-dag-topology-test test-simple-transform simple-topo [360 360 864 11232108 13460904 288 648 1188 15712092 17868888])
+
+(def-dag-topology-test test-bad-transform bad-topology nil)

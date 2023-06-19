@@ -1,5 +1,6 @@
 (ns etlp.connector.dag
   (:require [clojure.core.async :as a]
+            [clojure.tools.logging :refer [debug warn info]]
             [clojure.pprint :refer [pprint]])
   (:import [clojure.core.async.impl.channels ManyToManyChannel]))
 
@@ -45,16 +46,30 @@
     (try
       (process-fn data)
       (catch Exception ex
-        (println "Exception :: " ex)))))
+        (warn (str "ETLP Error :: " ex))))))
+
+(defn- process-xform!! [node-data node-channel]
+  (try
+    (if (instance? ManyToManyChannel node-channel)
+       (let [xform (xform-provider node-data)
+              output-channel (a/chan (a/buffer (get-partitions node-data)))]
+          (a/pipeline-blocking (get-threads node-data) output-channel xform node-channel)
+          output-channel)
+      node-channel)
+    (catch Exception ex (println (str "Eexception Occured" ex)))))
 
 (defn- process-xform [node-data node-channel]
   (try
     (if (instance? ManyToManyChannel node-channel)
-       (let [xform (xform-provider node-data)
-              output-channel (a/chan (a/buffer (get-partitions node-data)) xform)]
-          (a/pipe  node-channel output-channel))
+      (try (let [xform          (xform-provider node-data)
+                 output-channel (a/chan (a/buffer (get-partitions node-data)) xform (fn [ex] (println "some exception occurred")))]
+          (a/pipe node-channel output-channel))
+            (catch Exception _ex
+              (warn _ex)))
       node-channel)
-    (catch Exception ex (println (str "Eexception Occured" ex)))))
+    (catch NullPointerException ex
+      (warn (str "Etlp Exception:: " ex))
+      (debug ex))))
 
 (defn build [topology]
   (let [workflow (:workflow topology)
@@ -79,5 +94,3 @@
                 (swap! entities assoc-in [to-entity :channel]  output-channel))
               (swap! entities assoc-in [to-entity :channel] output-channel))))))
     @entities))
-
-
