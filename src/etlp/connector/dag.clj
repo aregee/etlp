@@ -36,17 +36,13 @@
   (= :processor (entity-type entity)))
 
 
-(defn- xform-provider? [entity]
-
-  (= :xform-provider (entity-type entity)))
-
-
 (defn- process-data [data entity]
   (let [process-fn (processors entity)]
     (try
       (process-fn data)
       (catch Exception ex
-        (warn (str "ETLP Error :: " ex))))))
+        (warn (str "Raise Error :: " ex))
+        (debug (.getMessage ex))))))
 
 (defn- process-xform!! [node-data node-channel]
   (try
@@ -56,20 +52,19 @@
           (a/pipeline-blocking (get-threads node-data) output-channel xform node-channel)
           output-channel)
       node-channel)
-    (catch Exception ex (println (str "Eexception Occured" ex)))))
+    (catch Exception ex (println (str "Exception Occured" ex)))))
 
 (defn- process-xform [node-data node-channel]
   (try
     (if (instance? ManyToManyChannel node-channel)
-      (try (let [xform          (xform-provider node-data)
-                 output-channel (a/chan (a/buffer (get-partitions node-data)) xform (fn [ex] (println "some exception occurred")))]
+      (let [xform          (xform-provider node-data)
+            output-channel (a/chan (a/buffer (get-partitions node-data)) xform)]
+          (debug  ">>Sinvoked><>>here node_data" node-channel)
           (a/pipe node-channel output-channel))
-            (catch Exception _ex
-              (warn _ex)))
       node-channel)
     (catch NullPointerException ex
       (warn (str "Etlp Exception:: " ex))
-      (debug ex))))
+      (debug ">>> " ex))))
 
 (defn build [topology]
   (let [workflow (:workflow topology)
