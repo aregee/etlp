@@ -1,4 +1,4 @@
-(defproject org.clojars.aregee/etlp "0.4.2-SNAPSHOT"
+(defproject org.clojars.aregee/etlp "0.3.2-SNAPSHOT"
   :description "A library to develop transducers based ETL processing pipelines with smart data connectors"
   :url "https://github.com/aregee/etlp"
   :license {:name "MIT"
@@ -10,7 +10,7 @@
                  [clj-http "3.12.3"]
                  [org.clojure/tools.logging "1.2.4"]
                  [org.clojure/core.async "0.4.500"]]
-  :deploy-repositories {"releases" {:url "https://repo.clojars.org" :creds :auth}}
+  :deploy-repositories {"snapshots" {:url "https://repo.clojars.org" :creds :gpg}}
   :plugins [[lein-with-env-vars "0.2.0"]]
   :hooks [leiningen.with-env-vars/auto-inject]
   :profiles {:dev {:dependencies []}}

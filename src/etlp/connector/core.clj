@@ -55,7 +55,7 @@
           threads       (get-in this [:config :threads])
           partitions    (get-in this [:config :partitions])
           xf            (:xform this)
-          pipeline-chan (a/pipeline-blocking threads dest-input xf src-output)]
+          pipeline-chan (a/pipeline threads dest-input xf src-output)]
         (assoc this :pipeline-chan (a/merge [dest-output]))))
   (stop [this]
     (when-let [pipeline-chan (:pipeline-chan this)]
