@@ -1,5 +1,5 @@
 (defproject com.github.aregee/etlp "0.4.2-SNAPSHOT"
-  :description "Transducers based ETL processing pipeline"
+  :description "A library to develop transducers based ETL processing pipelines with smart data connectors"
   :url "https://github.com/aregee/etlp"
   :license {:name "MIT"
             :url  "https://opensource.org/licenses/MIT"}
@@ -8,7 +8,6 @@
                  [integrant "0.8.0"]
                  [com.health-samurai/jute "0.2.0-SNAPSHOT"]
                  [clj-http "3.12.3"]
-                 [com.cognitect.aws/api "0.8.635"]
                  [org.clojure/tools.logging "1.2.4"]
                  [org.clojure/core.async "0.4.500"]]
   :deploy-repositories {"releases" {:url "https://repo.clojars.org" :creds :auth}}

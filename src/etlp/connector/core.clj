@@ -1,5 +1,6 @@
 (ns etlp.connector.core
   (:require [clojure.core.async :as a]
+            [etlp.connector.protocols :as ep]
             [clojure.pprint :refer [pprint]]))
 
 (defmulti etlp-source (fn [op source] op))
@@ -47,12 +48,14 @@
     (let [dest          (etlp-destination :write (:destination this))
           src           (etlp-source :read (:source this))
           src-output    (get-in src  [:etlp-output :channel])
+          src-errors    (get-in src  [:etlp-output :channel])
           dest-input    (get-in dest [:etlp-input  :channel])
           dest-output   (get-in dest [:etlp-output :channel])
+          dest-errors   (get-in dest [:etlp-output :channel])
           threads       (get-in this [:config :threads])
           partitions    (get-in this [:config :partitions])
           xf            (:xform this)
-          pipeline-chan (a/pipeline threads dest-input xf src-output)]
+          pipeline-chan (a/pipeline-blocking threads dest-input xf src-output)]
         (assoc this :pipeline-chan (a/merge [dest-output]))))
   (stop [this]
     (when-let [pipeline-chan (:pipeline-chan this)]

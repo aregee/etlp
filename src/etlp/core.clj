@@ -2,7 +2,7 @@
   (:require [clojure.string :as s]
             [clojure.core.async :as a]
             [clojure.pprint :refer [pprint]]
-            [clojure.tools.logging :refer [debug info]]
+            [clojure.tools.logging :refer [debug warn info]]
             [etlp.utils.mapper :as mapper]
             [etlp.connector.core :as ec]
             [integrant.core :as ig])
@@ -107,12 +107,12 @@
                              (get ctx :exec)))
 
 (defmethod invoke-connector ::start [{:keys [ connector options]}]
-  (println "Should invoke with :: " options)
+  (info "Should invoke with :: " options)
   (let [connection (connector options)]
     (start-job connection)))
 
 (defmethod invoke-connector ::check [{:keys [ connector options]}]
-  (println "Should stop with :: " options)
+  (info "Should stop with :: " options)
   (ec/source connector))
 
 (defmethod invoke-connector :default [params]

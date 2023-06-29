@@ -333,4 +333,4 @@ telecom:
 
 (def-dag-topology-test test-simple-transform simple-topo [360 360 864 11232108 13460904 288 648 1188 15712092 17868888])
 
-;; (def-dag-topology-test test-bad-transform bad-topology nil)
+(def-dag-topology-test test-bad-transform bad-topology nil)

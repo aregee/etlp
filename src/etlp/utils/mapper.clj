@@ -28,11 +28,14 @@
                          (yaml/parse-string template :keywords true)))
 
 (def resolve-jute-template (fn [resp]
-                              (-> resp
+                              (try
+                                (-> resp
                                   :content
                                   :yaml
                                   parse-decoded-yaml
-                                  jt/compile)))
+                                  jt/compile)
+                                (catch Exception e
+                                  (str (ex-info "Unexpected error while compiling jute template mapper" {:error e :data resp}))))))
 
 (defn fetch-mappings [{:keys [base-url specs]}]
   (let [mappings (atom {})]
