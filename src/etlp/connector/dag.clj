@@ -59,7 +59,7 @@
     (if (instance? ManyToManyChannel node-channel)
       (let [xform          (xform-provider node-data)
             output-channel (a/chan (a/buffer (get-partitions node-data)) xform)]
-          (debug  ">>Sinvoked><>>here node_data" node-channel)
+          (debug  "node_data" node-channel)
           (a/pipe node-channel output-channel))
       node-channel)
     (catch NullPointerException ex
@@ -68,12 +68,30 @@
 
 (defn build [topology]
   (let [workflow (:workflow topology)
-        entities (atom (:entities topology))]
+        entities (atom (:entities topology))
+        node-mults (atom {})]
     (doseq [edge workflow]
       (let [[from-entity to-entity] edge
             from-node-data          (get @entities from-entity)
             to-node                 (get @entities to-entity)
             from-node               (get @entities from-entity)]
+
+        ;; Check if the from-node has multiple outputs
+        (if-let [from-mult (get @node-mults from-entity)]
+          (let [output-channel (process-data from-node-data from-node)]
+            ;; Add the output-channel to the mult and create a new channel for the to-node
+            (a/tap from-mult output-channel)
+            (let [to-channel (a/chan)]
+              (swap! entities assoc-in [to-entity :channel] to-channel))))
+
+        ;; Check if the to-node has multiple inputs
+        (if-let [to-mult (get @node-mults to-entity)]
+          (let [input-channel (get @entities to-entity :channel)]
+            (let [to-channel (a/chan)]
+              (a/tap to-mult to-channel)
+              ;; Use the to-channel as the new input channel for the to-node
+              (swap! entities assoc-in [to-entity :channel] to-channel))))
+
         (if (processor? from-node)
           (let [output-channel (process-data from-node-data from-node)]
             (if (xform-provider? to-node)

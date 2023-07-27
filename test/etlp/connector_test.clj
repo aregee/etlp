@@ -271,6 +271,9 @@ telecom:
                              [:processor-2 :xform-2]
                              [:xform-2 :processor-3]
                              [:processor-3 :xform-3]
+                             [:processor-1 :xform-log]
+                             [:processor-2 :xform-log]
+                             [:processor-3 :xform-log]
                              [:xform-3 :etlp-output]]
                   :entities {:processor-1 {:meta {:entity-type :processor
                                                   :processor   (fn [ch]
@@ -307,6 +310,19 @@ telecom:
                                                             (filter not-nill)
                                                             (filter number?)
                                                             (map #(* 2 %)))
+                                              :entity-type :xform-provider}}
+
+                             :xform-log {:meta {:partitions  16
+                                              :xform       (comp
+                                                            (keep identity))
+                                              :entity-type :xform-provider}}
+                             :xform-log-1 {:meta {:partitions  16
+                                              :xform       (comp
+                                                            (keep identity))
+                                              :entity-type :xform-provider}}
+                             :xform-log-2 {:meta {:partitions  16
+                                              :xform       (comp
+                                                            (keep identity))
                                               :entity-type :xform-provider}}
                              :xform-3 {:meta {:partitions  16
                                               :xform       (comp
