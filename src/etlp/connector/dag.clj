@@ -49,10 +49,11 @@
     (if (instance? ManyToManyChannel node-channel)
        (let [xform (xform-provider node-data)
               output-channel (a/chan (a/buffer (get-partitions node-data)))]
-          (a/pipeline-blocking (get-threads node-data) output-channel xform node-channel)
+          (a/pipeline-blocking (or (get-threads node-data) 1) output-channel xform node-channel)
           output-channel)
       node-channel)
-    (catch Exception ex (println (str "Exception Occured" ex)))))
+    (catch Exception ex
+      (warn (str "Exception Occured" (.getStackTrace ex))))))
 
 (defn- process-xform [node-data node-channel]
   (try
@@ -63,7 +64,7 @@
           (a/pipe node-channel output-channel))
       node-channel)
     (catch NullPointerException ex
-      (warn (str "Etlp Exception:: " ex))
+      (warn (str "Etlp Exception:: " (.getStackTrace ex)))
       (debug ">>> " ex))))
 
 (defn build [topology]

@@ -8,102 +8,79 @@
             [etlp.processors.stdin :refer [create-stdin-source!]]
             [etlp.processors.stdout :refer [create-stdout-destination!]]
             [clojure.test :refer :all]
+            [integrant.core :as ig]
             [etlp.utils.core :refer [wrap-record wrap-log]]
             [clojure.tools.logging :refer [debug]]))
 
-(defn record-start? [log-line]
-  (.startsWith log-line "MSH"))
-
-(def invalid-msg? (complement record-start?))
-
-(defn is-valid-hl7? [msg]
-  (cond-> []
-    (invalid-msg? msg) (conj "Message should start with MSH segment")
-    (< (.length msg) 8) (conj "Message is too short (MSH truncated)")))
-
-(defn next-log-record [ctx hl7-lines]
-  (let [head (first hl7-lines)
-        body (take-while (complement record-start?) (rest hl7-lines))]
-    (remove nil? (conj body head))))
-
-(defn hl7-xform
-  "Returns a lazy sequence of lists like partition, but may include
-  partitions with fewer than n items at the end.  Returns a stateful
-  transducer when no collection is provided."
-  ([ctx]
-   (fn [rf]
-     (let [a (java.util.ArrayList.)]
-       (fn
-         ([] (rf))
-         ([result]
-          (let [result (if (.isEmpty a)
-                         result
-                         (let [v (vec (.toArray a))]
-                             ;;clear first!
-                           (.clear a)
-                           (unreduced (rf result v))))]
-            (rf result)))
-         ([result input]
-          (.add a input)
-          (if (and (> (count a) 1) (= true (record-start? input)))
-            (let [v (vec (.toArray a))]
-              (.clear a)
-              (.add a (last v))
-              (rf result (drop-last v)))
-            result))))))
-
-  ([ctx log-lines]
-   (lazy-seq
-    (when-let [s (seq log-lines)]
-      (let [record (doall (next-log-record ctx s))]
-        (cons record
-              (hl7-xform ctx (nthrest s (count record)))))))))
 
 
+(defmacro def-etlp-component-test [name input output]
+  `(clojure.test/deftest ~name
+     (let [test-data# ~input
+           _# (etlp/etlp-component test-data#)
+           result# (get-in @etlp/*etl-config [:etlp.core/processors (get-in test-data# [:ctx :name])])]
+       (clojure.test/is (= ~output result#)))))
 
-(defn create-xcom-input-processor [{:keys [config mapper]}]
-  (let [s3-source        {:threads    3
-                          :partitions 100000
-                          :reducers   {:json-reducer
-                                       (comp
-                                        (map (fn [input]
-                                               (try
-                                                 (json/decode input)
-                                                 (catch Exception e
-                                                   :etlp-invalid-json))))
-                                        (filter (fn [decoded-json]
-                                                  (not= decoded-json :etlp-invalid-json))))}
-                          :reducer    :json-reducer}
-        destination-conf {:threads    1
-                          :partitions 100000}]
+(def sample-processor
+  {:id  1 :component :etlp.core/processors
+   :ctx {:name        "test"
+         :process-fn  identity
+         :etlp-config {}
+         :etlp-mapper {}}})
 
-    {:source      (create-stdin-source! s3-source)
-     :destination (create-stdout-destination! destination-conf)
-     :xform       (comp
-;                   (remove #(= % :etlp-stdin-eof))
-                   (map wrap-record))
-     :threads     3}))
+(def-etlp-component-test adding-valid-processor
+  sample-processor
+  {:process-fn  identity
+   :etlp-config {}
+   :etlp-mapper {}})
 
-(def xcom-processor {:name        :airflow-xcom-processor
-                     :process-fn  create-xcom-input-processor
-                     :etlp-config {}
-                     :etlp-mapper {:base-url "http://localhost:3000"
-                                   :specs    {:ADT-PL       "13"
-                                              :test-mapping "16"}}})
+(def-etlp-component-test adding-processor-with-missing-ctx
+  {:id        1
+   :component :etlp.core/processors
+   :ctx       {:name "test"} }
+  {:process-fn  nil
+   :etlp-config nil
+   :etlp-mapper {}})
 
-
-(def xcom-connector {:id 2
-                     :component :etlp.core/processors
-                     :ctx xcom-processor})
-
-
-;; (def etl-pipeline (etlp/init {:components [kafka-connector]}))
+(def-etlp-component-test adding-processor-with-nil-ctx
+  {:id        1
+   :component :etlp.core/processors
+   :ctx       nil}
+  {:process-fn  nil
+   :etlp-config nil
+   :etlp-mapper {}})
 
 
-(def command {:processor :hl7-s3-kafka :params {:command :etlp.core/start
-                                                :options {:foo :bar}}})
+(deftest test-adding-processor-invalid-component
+  (is (thrown? IllegalArgumentException
+             (etlp/etlp-component {:id 1 :component :unknown}))))
+
+(deftest test-default-method
+  (is (thrown? IllegalArgumentException
+             (etlp/etlp-component :default {:component :unknown}))))
+
+(deftest test-ig-wrap-schema
+  (testing "ig-wrap-schema returns a function that gives the current *etl-config"
+    (do (reset! etlp/*etl-config nil)
+        (reset! etlp/*etlp-app nil))
+    (let [schema-fn (etlp/ig-wrap-schema {})]
+      (is (fn? schema-fn))
+      (is (= {:etlp.core/processors {}} (schema-fn)))
+    (reset! etlp/*etl-config (schema-fn))
+    (let [schema-fn (etlp/ig-wrap-schema {})]
+      (is (= {:etlp.core/processors {}} (schema-fn)))))))
 
 
-;; (def xcom-command {:processor :airflow-xcom-processor :params {:command :etlp.core/start
+(deftest test-etlp-connector
+  (testing "etlp-connector transforms config map correctly"
+    (let [conf {:mapping-specs :dummy-mappings :config :dummy-config :options :dummy-options}
+          result (#'etlp/etlp-connector conf)]
+      (is (= {:etlp.core/mapper {:mapping-specs :dummy-mappings}
+              :etlp.core/config {:conf :dummy-config}
+              :etlp.core/options {:opts :dummy-options}
+              :etlp.core/connection {:mapper (ig/ref :etlp.core/mapper)
+                                     :config (ig/ref :etlp.core/config)
+                                     :options (ig/ref :etlp.core/options)}
+              :etlp.core/app {:connection (ig/ref :etlp.core/connection)}} result)))))
 
-;; (etl-pipeline xcom-command)
+(run-tests)

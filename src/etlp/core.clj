@@ -58,13 +58,15 @@
   (let [stream-app (ig/init (etlp-connector config))]
     (get-in stream-app [:etlp.core/app :connection])))
 
-(defn create-etlp-processor [{:keys [process-fn etlp-config etlp-mapper] :as connector-def}]
+(defn create-etlp-processor
+  "An interface function that takes etlp-processing function, connector configuration and jute based etlp-mapper templates"
+  [{:keys [process-fn etlp-config etlp-mapper] :as connector-def}]
 
  (defmethod ig/init-key ::config [_ {:keys [conf]}] conf)
 
  (defmethod ig/init-key ::options [_ {:keys [opts]}] opts)
 
-  ;; Define init method for ::mapper
+  ;; Define init method for ::mapper to instantiate a network call to fetch jute based transformation mappings
  (defmethod ig/init-key ::mapper
    [_ {:keys [mapping-specs] :as config}]
    (mapper/fetch-mappings mapping-specs))
@@ -86,9 +88,12 @@
                   :options (connector-def :options)}))
 
 
-(def start-job (fn [connection]
+(def start-job
+  "Start the process to connect source and destination connectors"
+  (fn [connection]
                  (let [{:keys [pipeline-chan]} (ec/start connection)
                        result                  (a/chan)]
+                   (info "Start data processing pipeline")
                    (a/go-loop []
                      (let [v (a/<! pipeline-chan)]
                        (if (nil? v)
@@ -99,7 +104,7 @@
                    (loop []
                      (let [res (a/<!! result)]
                        (if (:end res)
-                         (println "All tasks completed.")
+                         (info "All processing tasks completed.")
                          (recur))))
                    (ec/stop connection))))
 
@@ -107,12 +112,12 @@
                              (get ctx :exec)))
 
 (defmethod invoke-connector ::start [{:keys [ connector options]}]
-  (info "Should invoke with :: " options)
+  (info "Should invoke the connector with options :: " options)
   (let [connection (connector options)]
     (start-job connection)))
 
 (defmethod invoke-connector ::check [{:keys [ connector options]}]
-  (info "Should stop with :: " options)
+  (info "Should stop the connector with :: " options)
   (ec/source connector))
 
 (defmethod invoke-connector :default [params]
@@ -120,7 +125,8 @@
           (str "Operation " (get params :exec) " not supported"))))
 
 (defn exec-processor
-  "run etlp processor" [ctx {:keys [processor params]}]
+  "Expose interface function to run an etlp processor"
+  [ctx {:keys [processor params]}]
   (let [executor (get-in ctx [:etlp.core/processors processor])]
     (invoke-connector {:exec (params :command) :connector executor :options params})))
 
