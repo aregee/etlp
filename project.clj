@@ -1,4 +1,4 @@
-(defproject org.clojars.aregee/etlp "0.3.3"
+(defproject org.clojars.aregee/etlp "0.3.4-SNAPSHOT"
   :description "A library to develop transducers based ETL processing pipelines with smart data connectors"
   :url "https://github.com/aregee/etlp"
   :license {:name "MIT"
